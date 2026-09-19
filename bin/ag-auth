@@ -1,0 +1,425 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# ag-auth: Antigravity CLI Multi-Account Session Vault & Token Switcher
+# Seamlessly switch between multiple Google accounts on Antigravity CLI
+# without re-authenticating or losing session credentials.
+# ==============================================================================
+set -euo pipefail
+
+VERSION="1.0.0"
+GEMINI_DIR="${HOME}/.gemini"
+CLI_DIR="${GEMINI_DIR}/antigravity-cli"
+ACTIVE_TOKEN="${CLI_DIR}/antigravity-oauth-token"
+ACTIVE_CREDS="${GEMINI_DIR}/oauth_creds.json"
+ACTIVE_ACCOUNTS="${GEMINI_DIR}/google_accounts.json"
+VAULT_DIR="${GEMINI_DIR}/auth_vault"
+PROFILES_DIR="${VAULT_DIR}/profiles"
+
+# Colors & Styling
+GREEN='\033[0;32m'
+BLUE='\033[0;34m'
+YELLOW='\033[1;33m'
+RED='\033[0;31m'
+CYAN='\033[0;36m'
+MAGENTA='\033[0;35m'
+BOLD='\033[1m'
+NC='\033[0m' # No Color
+
+# Ensure base vault permissions
+ensure_vault_dirs() {
+    mkdir -p "${PROFILES_DIR}"
+    chmod 700 "${VAULT_DIR}" "${PROFILES_DIR}" 2>/dev/null || true
+}
+
+# Helper: Extract email from id_token inside token file
+get_token_email() {
+    local token_file="$1"
+    if [[ ! -f "${token_file}" ]]; then
+        echo ""
+        return
+    fi
+
+    python3 -c "
+import json, base64, sys
+try:
+    with open('${token_file}', 'r') as f:
+        data = json.load(f)
+    id_token = data.get('id_token', '')
+    if not id_token:
+        print('')
+        sys.exit(0)
+    payload = id_token.split('.')[1]
+    padded = payload + '=' * (-len(payload) % 4)
+    claims = json.loads(base64.urlsafe_b64decode(padded))
+    print(claims.get('email', ''))
+except Exception:
+    print('')
+" 2>/dev/null
+}
+
+# Helper: Extract expiration timestamp
+get_token_exp() {
+    local token_file="$1"
+    if [[ ! -f "${token_file}" ]]; then
+        echo ""
+        return
+    fi
+
+    python3 -c "
+import json, base64, sys, datetime
+try:
+    with open('${token_file}', 'r') as f:
+        data = json.load(f)
+    id_token = data.get('id_token', '')
+    if not id_token:
+        print('')
+        sys.exit(0)
+    payload = id_token.split('.')[1]
+    padded = payload + '=' * (-len(payload) % 4)
+    claims = json.loads(base64.urlsafe_b64decode(padded))
+    exp = claims.get('exp')
+    if exp:
+        dt = datetime.datetime.fromtimestamp(exp, datetime.timezone.utc)
+        print(dt.strftime('%Y-%m-%d %H:%M:%S UTC'))
+    else:
+        print('unknown')
+except Exception:
+    print('')
+" 2>/dev/null
+}
+
+# Helper: Show current active session
+cmd_current() {
+    echo -e "${BOLD}${CYAN}=== Antigravity CLI Active Session ===${NC}"
+    if [[ ! -f "${ACTIVE_TOKEN}" ]]; then
+        echo -e "${YELLOW}Status:${NC} No active session token found."
+        echo -e "Path:   ${ACTIVE_TOKEN}"
+        return 0
+    fi
+
+    local email exp modified
+    email=$(get_token_email "${ACTIVE_TOKEN}")
+    exp=$(get_token_exp "${ACTIVE_TOKEN}")
+    modified=$(stat -f "%Sm" -t "%Y-%m-%d %H:%M:%S" "${ACTIVE_TOKEN}" 2>/dev/null || date)
+
+    if [[ -n "${email}" ]]; then
+        echo -e "${GREEN}Active Account:${NC} ${BOLD}${email}${NC}"
+    else
+        echo -e "${YELLOW}Active Account:${NC} Token exists (no email parsed in id_token)"
+    fi
+
+    [[ -n "${exp}" ]] && echo -e "Token Expiry:   ${exp}"
+    echo -e "Token File:     ${ACTIVE_TOKEN}"
+    echo -e "Last Modified:  ${modified}"
+}
+
+# Helper: Save current active session
+cmd_save() {
+    ensure_vault_dirs
+    local target_name="${1:-}"
+
+    if [[ ! -f "${ACTIVE_TOKEN}" ]]; then
+        echo -e "${RED}Error:${NC} No active token file found at ${ACTIVE_TOKEN} to save."
+        exit 1
+    fi
+
+    local email
+    email=$(get_token_email "${ACTIVE_TOKEN}")
+
+    if [[ -z "${target_name}" ]]; then
+        if [[ -n "${email}" ]]; then
+            target_name="${email}"
+        else
+            echo -e "${RED}Error:${NC} Could not auto-detect email claim."
+            echo -e "Please supply a profile name: ${BOLD}ag-auth save <profile_name>${NC}"
+            exit 1
+        fi
+    fi
+
+    local profile_path="${PROFILES_DIR}/${target_name}"
+    mkdir -p "${profile_path}"
+    chmod 700 "${profile_path}"
+
+    cp "${ACTIVE_TOKEN}" "${profile_path}/antigravity-oauth-token"
+    chmod 600 "${profile_path}/antigravity-oauth-token"
+
+    if [[ -f "${ACTIVE_CREDS}" ]]; then
+        cp "${ACTIVE_CREDS}" "${profile_path}/oauth_creds.json"
+        chmod 600 "${profile_path}/oauth_creds.json"
+    fi
+
+    if [[ -f "${ACTIVE_ACCOUNTS}" ]]; then
+        cp "${ACTIVE_ACCOUNTS}" "${profile_path}/google_accounts.json"
+        chmod 600 "${profile_path}/google_accounts.json"
+    fi
+
+    cat <<EOF > "${profile_path}/profile.json"
+{
+  "profile": "${target_name}",
+  "email": "${email}",
+  "saved_at": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+}
+EOF
+    chmod 600 "${profile_path}/profile.json"
+
+    echo -e "${GREEN}✔ Profile successfully saved to vault:${NC} ${BOLD}${target_name}${NC}"
+    echo -e "  Vault location: ${profile_path}"
+}
+
+# Helper: List all vaulted profiles
+cmd_list() {
+    ensure_vault_dirs
+    echo -e "${BOLD}${BLUE}=== Vaulted Antigravity Profiles ===${NC}"
+    local active_email
+    active_email=$(get_token_email "${ACTIVE_TOKEN}")
+
+    local count=0
+    for dir in "${PROFILES_DIR}"/*; do
+        if [[ -d "${dir}" ]]; then
+            count=$((count + 1))
+            local pname
+            pname=$(basename "${dir}")
+            local p_email=""
+            if [[ -f "${dir}/profile.json" ]]; then
+                p_email=$(grep -o '"email": *"[^"]*"' "${dir}/profile.json" 2>/dev/null | cut -d'"' -f4 || true)
+            fi
+            if [[ -z "${p_email}" && -f "${dir}/antigravity-oauth-token" ]]; then
+                p_email=$(get_token_email "${dir}/antigravity-oauth-token")
+            fi
+
+            local exp=""
+            if [[ -f "${dir}/antigravity-oauth-token" ]]; then
+                exp=$(get_token_exp "${dir}/antigravity-oauth-token")
+            fi
+
+            if [[ -n "${active_email}" && ("${active_email}" == "${p_email}" || "${active_email}" == "${pname}") ]]; then
+                echo -e "  ${GREEN}▶ ${BOLD}${pname}${NC} (${p_email:-no-email}) ${GREEN}[CURRENT ACTIVE]${NC}"
+            else
+                echo -e "    ${BOLD}${pname}${NC} (${p_email:-no-email})"
+            fi
+            if [[ -n "${exp}" ]]; then
+                echo -e "      Expires: ${exp}"
+            fi
+        fi
+    done
+
+    if [[ ${count} -eq 0 ]]; then
+        echo -e "${YELLOW}No profiles found in vault (${PROFILES_DIR}).${NC}"
+        echo -e "Run '${BOLD}ag-auth save${NC}' to archive the current active session."
+    fi
+}
+
+# Helper: Detach active session to log in with a new account
+cmd_detach() {
+    ensure_vault_dirs
+    echo -e "${YELLOW}Preparing to detach current session...${NC}"
+    if [[ -f "${ACTIVE_TOKEN}" ]]; then
+        local email
+        email=$(get_token_email "${ACTIVE_TOKEN}")
+        local auto_name="${email:-backup_$(date +%s)}"
+        echo -e "1. Auto-saving active session as '${BOLD}${auto_name}${NC}'..."
+        cmd_save "${auto_name}" >/dev/null
+
+        echo -e "2. Removing active token from ${ACTIVE_TOKEN}..."
+        rm -f "${ACTIVE_TOKEN}"
+        echo -e "${GREEN}✔ Active token successfully detached.${NC}"
+    else
+        echo -e "No active token was found at ${ACTIVE_TOKEN}."
+    fi
+
+    echo -e "\n${BOLD}${CYAN}Next Steps to Authenticate Second Account:${NC}"
+    echo "  1. Run Antigravity CLI or send a prompt."
+    echo "  2. The CLI will request an OAuth login. Complete the login with your new account."
+    echo "  3. Once authenticated, run: ${BOLD}ag-auth save${NC}"
+    echo "  4. Switch between accounts anytime using: ${BOLD}ag-auth switch <email_or_profile>${NC}"
+}
+
+# Helper: Switch to a profile
+cmd_switch() {
+    ensure_vault_dirs
+    local target="$1"
+    local profile_path="${PROFILES_DIR}/${target}"
+
+    if [[ ! -d "${profile_path}" || ! -f "${profile_path}/antigravity-oauth-token" ]]; then
+        echo -e "${RED}Error:${NC} Profile '${target}' does not exist in vault."
+        echo ""
+        cmd_list
+        exit 1
+    fi
+
+    # Auto-preserve current active session first if it exists
+    if [[ -f "${ACTIVE_TOKEN}" ]]; then
+        local current_email
+        current_email=$(get_token_email "${ACTIVE_TOKEN}")
+        if [[ -n "${current_email}" && "${current_email}" != "${target}" ]]; then
+            cmd_save "${current_email}" >/dev/null 2>&1 || true
+        fi
+    fi
+
+    # Atomic write to ACTIVE_TOKEN
+    mkdir -p "${CLI_DIR}"
+    local tmp_file="${CLI_DIR}/.antigravity-oauth-token.tmp.$$"
+    cp "${profile_path}/antigravity-oauth-token" "${tmp_file}"
+    chmod 600 "${tmp_file}"
+    mv "${tmp_file}" "${ACTIVE_TOKEN}"
+
+    # Restore oauth_creds.json if present
+    if [[ -f "${profile_path}/oauth_creds.json" ]]; then
+        local tmp_creds="${GEMINI_DIR}/.oauth_creds.tmp.$$"
+        cp "${profile_path}/oauth_creds.json" "${tmp_creds}"
+        chmod 600 "${tmp_creds}"
+        mv "${tmp_creds}" "${ACTIVE_CREDS}"
+    fi
+
+    # Restore google_accounts.json if present
+    if [[ -f "${profile_path}/google_accounts.json" ]]; then
+        local tmp_accs="${GEMINI_DIR}/.google_accounts.tmp.$$"
+        cp "${profile_path}/google_accounts.json" "${tmp_accs}"
+        chmod 600 "${tmp_accs}"
+        mv "${tmp_accs}" "${ACTIVE_ACCOUNTS}"
+    fi
+
+    echo -e "${GREEN}✔ Successfully switched session to:${NC} ${BOLD}${target}${NC}"
+    echo ""
+    cmd_current
+}
+
+# Helper: Delete a profile
+cmd_delete() {
+    ensure_vault_dirs
+    local target="$1"
+    local profile_path="${PROFILES_DIR}/${target}"
+
+    if [[ ! -d "${profile_path}" ]]; then
+        echo -e "${RED}Error:${NC} Profile '${target}' not found."
+        exit 1
+    fi
+
+    read -rp "Are you sure you want to permanently delete profile '${target}'? [y/N]: " confirm
+    if [[ "${confirm}" =~ ^[Yy]$ ]]; then
+        rm -rf "${profile_path}"
+        echo -e "${GREEN}✔ Profile '${target}' removed from vault.${NC}"
+    else
+        echo "Canceled."
+    fi
+}
+
+# Interactive Mode
+cmd_interactive() {
+    echo -e "${BOLD}${MAGENTA}========================================${NC}"
+    echo -e "${BOLD}${MAGENTA}  Antigravity CLI Session Vault (${VERSION})${NC}"
+    echo -e "${BOLD}${MAGENTA}========================================${NC}"
+    echo ""
+    cmd_current
+    echo ""
+    echo -e "${BOLD}Actions:${NC}"
+    echo "  1) Save current session to vault"
+    echo "  2) Switch to a saved profile"
+    echo "  3) Detach current session (prepare for new account login)"
+    echo "  4) List all saved profiles"
+    echo "  5) Delete a profile from vault"
+    echo "  6) Exit"
+    echo ""
+    read -rp "Select an option [1-6]: " choice
+    case "${choice}" in
+        1)
+            read -rp "Enter profile name (press Enter to auto-detect email): " name
+            cmd_save "${name}"
+            ;;
+        2)
+            echo ""
+            cmd_list
+            echo ""
+            read -rp "Enter profile name or email to switch to: " target
+            if [[ -n "${target}" ]]; then
+                cmd_switch "${target}"
+            fi
+            ;;
+        3)
+            cmd_detach
+            ;;
+        4)
+            echo ""
+            cmd_list
+            ;;
+        5)
+            echo ""
+            cmd_list
+            echo ""
+            read -rp "Enter profile name to delete: " target
+            if [[ -n "${target}" ]]; then
+                cmd_delete "${target}"
+            fi
+            ;;
+        6)
+            echo "Goodbye!"
+            exit 0
+            ;;
+        *)
+            echo -e "${RED}Invalid selection.${NC}"
+            exit 1
+            ;;
+    esac
+}
+
+# Command Line Dispatcher
+case "${1:-}" in
+    current|status|whoami)
+        cmd_current
+        ;;
+    save)
+        cmd_save "${2:-}"
+        ;;
+    list|ls)
+        cmd_list
+        ;;
+    detach|new|logout-temp)
+        cmd_detach
+        ;;
+    switch|use)
+        if [[ -z "${2:-}" ]]; then
+            echo -e "${RED}Error:${NC} Profile name required. Example: ag-auth switch kazi.re.kazi@gmail.com"
+            echo ""
+            cmd_list
+            exit 1
+        fi
+        cmd_switch "$2"
+        ;;
+    delete|rm)
+        if [[ -z "${2:-}" ]]; then
+            echo -e "${RED}Error:${NC} Profile name required."
+            exit 1
+        fi
+        cmd_delete "$2"
+        ;;
+    version|-v|--version)
+        echo "ag-auth version ${VERSION}"
+        ;;
+    help|--help|-h)
+        echo -e "${BOLD}ag-auth${NC} - Antigravity CLI Multi-Account Session Vault & Token Switcher"
+        echo ""
+        echo -e "${BOLD}Usage:${NC}"
+        echo "  ag-auth                     Launch interactive menu"
+        echo "  ag-auth current             Show active account & token details"
+        echo "  ag-auth save [name]         Archive current session (auto-detects email)"
+        echo "  ag-auth list                List all stored account profiles"
+        echo "  ag-auth switch <profile>    Switch active session to a saved profile"
+        echo "  ag-auth detach              Stash active session & clear token for new login"
+        echo "  ag-auth delete <profile>    Remove a profile from vault"
+        echo ""
+        echo -e "${BOLD}Examples:${NC}"
+        echo "  ag-auth save"
+        echo "  ag-auth detach"
+        echo "  ag-auth switch kaziaremon@gmail.com"
+        echo "  ag-auth switch second_account@gmail.com"
+        ;;
+    *)
+        if [[ -z "${1:-}" ]]; then
+            cmd_interactive
+        else
+            echo -e "${RED}Unknown command:${NC} $1"
+            echo "Run 'ag-auth help' for all commands."
+            exit 1
+        fi
+        ;;
+esac

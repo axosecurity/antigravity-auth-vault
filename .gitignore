@@ -1,0 +1,14 @@
+# OS & System
+.DS_Store
+*.tmp
+*.log
+
+# Sensitive Credentials Protection
+*token*
+*creds*
+*.pbtxt
+*.key
+*.pem
+*.env
+auth_vault/
+profiles/
