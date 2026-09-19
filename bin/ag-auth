@@ -296,6 +296,11 @@ cmd_detach() {
     ensure_vault_dirs
     echo -e "${YELLOW}Preparing to detach current session...${NC}"
 
+    # 0. Stop background remote-control daemon if running
+    if command -v agy >/dev/null 2>&1; then
+        agy remote-control stop >/dev/null 2>&1 || true
+    fi
+
     local email=""
     if [[ -f "${ACTIVE_TOKEN}" ]]; then
         email=$(get_token_email "${ACTIVE_TOKEN}")
