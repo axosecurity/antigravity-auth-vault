@@ -72,47 +72,59 @@ export PATH="$HOME/.local/bin:$PATH"
 
 ## 📖 Usage Guide
 
-### 1. Check Active Session
+### 1. Instant Arrow-Key Switcher (`@` Shortcut)
+Simply type `@` and hit Enter in your terminal:
+```bash
+@
+```
+Use the **`↑` and `↓` arrow keys** to highlight your desired account and press **`Enter`** (or press the corresponding number `1`, `2`...).
+Zero typing, zero copy-pasting!
+
+```text
+Select Antigravity Account (↑/↓ arrow keys, Enter to switch, q to cancel):
+  ▶ [1] kaziaremon@gmail.com (exp: 04:54 UTC) [CURRENT ACTIVE]
+    [2] kulsumaakter722@gmail.com (exp: 05:02 UTC)
+```
+
+*(You can also run `ag-auth switch` without parameters to open this same picker).*
+
+### 2. Check Active Session
 Displays the currently active account, token location, and expiration time:
 ```bash
 ag-auth current
 ```
 
-### 2. Save Active Session to Vault
-Archives the current account session into the local vault. If no profile name is provided, it automatically extracts the email address:
+### 3. Save Active Session to Vault
+Archives the current account session into the local vault (auto-extracts the email address):
 ```bash
 ag-auth save
-# or with a custom alias:
-ag-auth save work-account
 ```
 
-### 3. Log In to a Second Account (Detach Flow)
-Safely saves your current session and clears the active token file so the Antigravity CLI prompts for a fresh login:
+### 4. Direct Account Switch
+Switch directly to an account by name or email:
+```bash
+ag-auth switch kaziaremon@gmail.com
+ag-auth switch kulsumaakter722@gmail.com
+```
+
+### 5. Log In to a New Account (Detach Flow)
+Safely saves your current session and clears the active token so Antigravity CLI prompts for a fresh login:
 ```bash
 ag-auth detach
 ```
 Then:
-1. Run Antigravity CLI or send a message.
-2. Sign in with your new Google account via the OAuth prompt.
-3. Once logged in, run:
-   ```bash
-   ag-auth save
-   ```
+1. Run Antigravity CLI: `agy`
+2. Complete Google sign-in with your new account.
+3. Run `ag-auth save`.
 
-### 4. Switch Accounts Anytime
-Quickly swap back to any saved account profile:
-```bash
-ag-auth switch kaziaremon@gmail.com
-```
-
-### 5. List Saved Profiles
+### 6. List Saved Profiles
 View all accounts stored in the vault, with indicators for the currently active session:
 ```bash
 ag-auth list
 ```
 
-### 6. Interactive Mode
-Run without arguments for an interactive selection prompt:
+### 7. Full Interactive Menu
+Run without arguments for the numbered master menu:
 ```bash
 ag-auth
 ```

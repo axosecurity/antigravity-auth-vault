@@ -16,7 +16,16 @@ chmod +x "${BIN_SRC}"
 cp -f "${BIN_SRC}" "${TARGET_BIN}"
 chmod +x "${TARGET_BIN}"
 
-echo "✔ Successfully installed ag-auth to ${TARGET_BIN}"
+# Setup @ symlink for instant 1-character switcher
+ln -sf "${TARGET_BIN}" "${TARGET_DIR}/@"
+
+echo "✔ Successfully installed ag-auth and '@' shortcut to ${TARGET_DIR}"
+
+# Add alias to ~/.zshrc if not present
+if [[ -f "${HOME}/.zshrc" ]] && ! grep -q 'alias @=' "${HOME}/.zshrc"; then
+    echo 'alias @="ag-auth @"' >> "${HOME}/.zshrc"
+    echo "✔ Added '@' alias to ~/.zshrc"
+fi
 
 # Verify PATH
 if [[ ":$PATH:" != *":${TARGET_DIR}:"* ]]; then
@@ -24,7 +33,7 @@ if [[ ":$PATH:" != *":${TARGET_DIR}:"* ]]; then
     echo "Add this line to your ~/.zshrc or ~/.bashrc:"
     echo '  export PATH="$HOME/.local/bin:$PATH"'
 else
-    echo "✔ ${TARGET_DIR} is in your PATH. You can run 'ag-auth' from anywhere!"
+    echo "✔ ${TARGET_DIR} is in your PATH. You can run '@' or 'ag-auth' from anywhere!"
 fi
 
 echo ""

@@ -3,11 +3,11 @@
 # ag-auth: Antigravity CLI Multi-Account Session Vault & Token Switcher
 # Seamlessly switch between multiple Google accounts on Antigravity CLI
 # without re-authenticating or losing session credentials.
-# Supports both ~/.gemini filesystem and macOS Keychain (go-keyring).
+# Supports interactive arrow-key selection (↑/↓ + Enter) & quick @ shortcut.
 # ==============================================================================
 set -euo pipefail
 
-VERSION="1.1.0"
+VERSION="1.2.0"
 GEMINI_DIR="${HOME}/.gemini"
 CLI_DIR="${GEMINI_DIR}/antigravity-cli"
 ACTIVE_TOKEN="${CLI_DIR}/antigravity-oauth-token"
@@ -146,6 +146,104 @@ try:
 except Exception:
     print('')
 " 2>/dev/null
+}
+
+# Interactive Arrow-Key Profile Picker (↑ / ↓ + Enter)
+pick_profile_interactive() {
+    local active_email=""
+    if [[ -f "${ACTIVE_TOKEN}" ]]; then
+        active_email=$(get_token_email "${ACTIVE_TOKEN}")
+    else
+        active_email=$(get_token_email "keychain")
+    fi
+
+    python3 -c "
+import sys, os, tty, termios, json, base64, datetime
+
+vault_dir = os.path.expanduser('${PROFILES_DIR}')
+active_email = '${active_email}'
+
+items = []
+if os.path.exists(vault_dir):
+    for d in sorted(os.listdir(vault_dir)):
+        p = os.path.join(vault_dir, d)
+        token_path = os.path.join(p, 'antigravity-oauth-token')
+        if os.path.isdir(p) and os.path.exists(token_path):
+            exp = ''
+            try:
+                with open(token_path, 'r') as f:
+                    data = json.load(f)
+                tok = data.get('id_token', '')
+                claims = json.loads(base64.urlsafe_b64decode(tok.split('.')[1] + '==='))
+                if claims.get('exp'):
+                    dt = datetime.datetime.fromtimestamp(claims['exp'], datetime.timezone.utc)
+                    exp = dt.strftime('%H:%M UTC')
+            except Exception:
+                pass
+            items.append((d, exp))
+
+if not items:
+    sys.stderr.write('\033[1;33mNo saved profiles found in vault.\033[0m\n')
+    sys.exit(1)
+
+# Non-interactive fallback
+if not sys.stdin.isatty():
+    sys.stdout.write(items[0][0])
+    sys.exit(0)
+
+fd = sys.stdin.fileno()
+old_settings = termios.tcgetattr(fd)
+selected = 0
+
+# Set default selection to the non-active profile if currently on active
+for idx, (name, _) in enumerate(items):
+    if name != active_email:
+        selected = idx
+        break
+
+sys.stderr.write('\033[?25l')  # Hide cursor
+try:
+    tty.setraw(fd)
+    while True:
+        out = ['\r\033[K\033[1;36mSelect Antigravity Account (\u2191/\u2193 arrow keys, Enter to switch, q to cancel):\033[0m\n\r']
+        for i, (name, exp) in enumerate(items):
+            is_active = ' \033[1;32m[CURRENT ACTIVE]\033[0m' if name == active_email else ''
+            exp_str = f' \033[2m(exp: {exp})\033[0m' if exp else ''
+            if i == selected:
+                out.append(f'\r\033[K  \033[1;32m\u25b6 [{i+1}] {name}\033[0m{exp_str}{is_active}\n\r')
+            else:
+                out.append(f'\r\033[K    [{i+1}] {name}{exp_str}{is_active}\n\r')
+        sys.stderr.write(''.join(out))
+        sys.stderr.write(f'\033[{len(items) + 1}A')
+        sys.stderr.flush()
+
+        ch = sys.stdin.read(1)
+        if ch == '\x1b':
+            seq = sys.stdin.read(2)
+            if seq == '[A':  # Up arrow
+                selected = (selected - 1) % len(items)
+            elif seq == '[B':  # Down arrow
+                selected = (selected + 1) % len(items)
+        elif ch.isdigit() and 1 <= int(ch) <= len(items):
+            selected = int(ch) - 1
+            sys.stderr.write(f'\033[{len(items) + 1}B\r\n')
+            sys.stderr.flush()
+            sys.stdout.write(items[selected][0])
+            sys.exit(0)
+        elif ch in ('\r', '\n'):
+            sys.stderr.write(f'\033[{len(items) + 1}B\r\n')
+            sys.stderr.flush()
+            sys.stdout.write(items[selected][0])
+            sys.exit(0)
+        elif ch in ('\x03', 'q', 'Q'):  # Ctrl+C or q to cancel
+            sys.stderr.write(f'\033[{len(items) + 1}B\r\n\033[1;33mCancelled.\033[0m\n\r')
+            sys.stderr.flush()
+            sys.exit(1)
+finally:
+    sys.stderr.write('\033[?25h')  # Restore cursor
+    sys.stderr.flush()
+    termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+"
 }
 
 # Helper: Show current active session
@@ -324,16 +422,25 @@ cmd_detach() {
 
     echo -e "${GREEN}✔ Active session successfully detached!${NC}"
     echo -e "\n${BOLD}${CYAN}Next Steps to Authenticate Second Account:${NC}"
-    echo -e "  1. Run Antigravity CLI or send a prompt."
+    echo -e "  1. Run Antigravity CLI: ${BOLD}agy${NC}"
     echo -e "  2. The CLI will request an OAuth login. Complete the login with your new account."
     echo -e "  3. Once authenticated, run: ${BOLD}ag-auth save${NC}"
-    echo -e "  4. Switch between accounts anytime using: ${BOLD}ag-auth switch <email_or_profile>${NC}"
+    echo -e "  4. Switch between accounts anytime using: ${BOLD}@${NC} or ${BOLD}ag-auth switch${NC}"
 }
 
 # Helper: Switch to a profile
 cmd_switch() {
     ensure_vault_dirs
-    local target="$1"
+    local target="${1:-}"
+
+    # If no profile provided, trigger arrow-key interactive picker!
+    if [[ -z "${target}" ]]; then
+        target=$(pick_profile_interactive)
+        if [[ -z "${target}" ]]; then
+            exit 0
+        fi
+    fi
+
     local profile_path="${PROFILES_DIR}/${target}"
 
     if [[ ! -d "${profile_path}" || ! -f "${profile_path}/antigravity-oauth-token" ]]; then
@@ -389,7 +496,15 @@ cmd_switch() {
 # Helper: Delete a profile
 cmd_delete() {
     ensure_vault_dirs
-    local target="$1"
+    local target="${1:-}"
+
+    if [[ -z "${target}" ]]; then
+        target=$(pick_profile_interactive)
+        if [[ -z "${target}" ]]; then
+            exit 0
+        fi
+    fi
+
     local profile_path="${PROFILES_DIR}/${target}"
 
     if [[ ! -d "${profile_path}" ]]; then
@@ -416,7 +531,7 @@ cmd_interactive() {
     echo ""
     echo -e "${BOLD}Actions:${NC}"
     echo "  1) Save current session to vault"
-    echo "  2) Switch to a saved profile"
+    echo "  2) Switch account (↑ / ↓ arrow selection)"
     echo "  3) Detach current session (prepare for new account login)"
     echo "  4) List all saved profiles"
     echo "  5) Delete a profile from vault"
@@ -430,11 +545,10 @@ cmd_interactive() {
             ;;
         2)
             echo ""
-            cmd_list
-            echo ""
-            read -rp "Enter profile name or email to switch to: " target
-            if [[ -n "${target}" ]]; then
-                cmd_switch "${target}"
+            local selected
+            selected=$(pick_profile_interactive)
+            if [[ -n "${selected}" ]]; then
+                cmd_switch "${selected}"
             fi
             ;;
         3)
@@ -446,9 +560,8 @@ cmd_interactive() {
             ;;
         5)
             echo ""
-            cmd_list
-            echo ""
-            read -rp "Enter profile name to delete: " target
+            local target
+            target=$(pick_profile_interactive)
             if [[ -n "${target}" ]]; then
                 cmd_delete "${target}"
             fi
@@ -464,8 +577,18 @@ cmd_interactive() {
     esac
 }
 
+# Handle when executed as '@' or '#' directly
+BASE_CMD="$(basename "$0")"
+if [[ "${BASE_CMD}" == "@" || "${BASE_CMD}" == "#" ]]; then
+    cmd_switch ""
+    exit 0
+fi
+
 # Command Line Dispatcher
 case "${1:-}" in
+    "@"|"#"|"select"|"sw")
+        cmd_switch ""
+        ;;
     current|status|whoami)
         cmd_current
         ;;
@@ -479,20 +602,10 @@ case "${1:-}" in
         cmd_detach
         ;;
     switch|use)
-        if [[ -z "${2:-}" ]]; then
-            echo -e "${RED}Error:${NC} Profile name required. Example: ag-auth switch kazi.re.kazi@gmail.com"
-            echo ""
-            cmd_list
-            exit 1
-        fi
-        cmd_switch "$2"
+        cmd_switch "${2:-}"
         ;;
     delete|rm)
-        if [[ -z "${2:-}" ]]; then
-            echo -e "${RED}Error:${NC} Profile name required."
-            exit 1
-        fi
-        cmd_delete "$2"
+        cmd_delete "${2:-}"
         ;;
     version|-v|--version)
         echo "ag-auth version ${VERSION}"
@@ -501,19 +614,20 @@ case "${1:-}" in
         echo -e "${BOLD}ag-auth${NC} - Antigravity CLI Multi-Account Session Vault & Token Switcher"
         echo ""
         echo -e "${BOLD}Usage:${NC}"
-        echo "  ag-auth                     Launch interactive menu"
+        echo "  @                           Instant interactive account switcher (↑/↓ + Enter)"
+        echo "  ag-auth switch              Interactive arrow-key account selector"
+        echo "  ag-auth switch <profile>    Directly switch to an account by name/email"
         echo "  ag-auth current             Show active account & token details"
         echo "  ag-auth save [name]         Archive current session (auto-detects email)"
         echo "  ag-auth list                List all stored account profiles"
-        echo "  ag-auth switch <profile>    Switch active session to a saved profile"
         echo "  ag-auth detach              Stash active session & clear token for new login"
-        echo "  ag-auth delete <profile>    Remove a profile from vault"
+        echo "  ag-auth delete [profile]    Remove a profile from vault"
+        echo "  ag-auth                     Launch full interactive menu"
         echo ""
         echo -e "${BOLD}Examples:${NC}"
-        echo "  ag-auth save"
-        echo "  ag-auth detach"
+        echo "  @                           # Just type @ and hit Enter to select with arrow keys!"
+        echo "  ag-auth switch              # Up/Down arrow selection"
         echo "  ag-auth switch kaziaremon@gmail.com"
-        echo "  ag-auth switch second_account@gmail.com"
         ;;
     *)
         if [[ -z "${1:-}" ]]; then
