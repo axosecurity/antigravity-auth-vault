@@ -3,10 +3,11 @@
 # ag-auth: Antigravity CLI Multi-Account Session Vault & Token Switcher
 # Seamlessly switch between multiple Google accounts on Antigravity CLI
 # without re-authenticating or losing session credentials.
+# Supports both ~/.gemini filesystem and macOS Keychain (go-keyring).
 # ==============================================================================
 set -euo pipefail
 
-VERSION="1.0.0"
+VERSION="1.1.0"
 GEMINI_DIR="${HOME}/.gemini"
 CLI_DIR="${GEMINI_DIR}/antigravity-cli"
 ACTIVE_TOKEN="${CLI_DIR}/antigravity-oauth-token"
@@ -25,25 +26,70 @@ MAGENTA='\033[0;35m'
 BOLD='\033[1m'
 NC='\033[0m' # No Color
 
-# Ensure base vault permissions
 ensure_vault_dirs() {
     mkdir -p "${PROFILES_DIR}"
     chmod 700 "${VAULT_DIR}" "${PROFILES_DIR}" 2>/dev/null || true
 }
 
-# Helper: Extract email from id_token inside token file
-get_token_email() {
-    local token_file="$1"
-    if [[ ! -f "${token_file}" ]]; then
-        echo ""
-        return
-    fi
-
+# Keychain Helpers (macOS Security)
+keychain_read_token() {
     python3 -c "
-import json, base64, sys
+import subprocess, base64
 try:
-    with open('${token_file}', 'r') as f:
-        data = json.load(f)
+    out = subprocess.check_output(['security', 'find-generic-password', '-s', 'gemini', '-a', 'antigravity', '-w'], stderr=subprocess.DEVNULL).decode('utf-8').strip()
+    if out.startswith('go-keyring-base64:'):
+        b64_part = out[len('go-keyring-base64:'):]
+        print(base64.b64decode(b64_part).decode('utf-8'))
+except Exception:
+    pass
+" 2>/dev/null
+}
+
+keychain_sync_token() {
+    local token_file="$1"
+    python3 -c "
+import subprocess, base64, sys
+try:
+    with open('${token_file}', 'rb') as f:
+        content = f.read()
+    b64_val = 'go-keyring-base64:' + base64.b64encode(content).decode('utf-8')
+    subprocess.run(['security', 'add-generic-password', '-U', '-s', 'gemini', '-a', 'antigravity', '-w', b64_val], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+except Exception as e:
+    sys.exit(1)
+" 2>/dev/null || true
+}
+
+keychain_delete_token() {
+    security delete-generic-password -s "gemini" -a "antigravity" >/dev/null 2>&1 || true
+}
+
+# Helper: Extract email from id_token
+get_token_email() {
+    local token_file="${1:-}"
+    python3 -c "
+import json, base64, sys, subprocess
+
+raw_json = ''
+if '${token_file}' and '${token_file}' != 'keychain':
+    try:
+        with open('${token_file}', 'r') as f:
+            raw_json = f.read()
+    except Exception:
+        pass
+else:
+    try:
+        out = subprocess.check_output(['security', 'find-generic-password', '-s', 'gemini', '-a', 'antigravity', '-w'], stderr=subprocess.DEVNULL).decode('utf-8').strip()
+        if out.startswith('go-keyring-base64:'):
+            raw_json = base64.b64decode(out[len('go-keyring-base64:'):]).decode('utf-8')
+    except Exception:
+        pass
+
+if not raw_json:
+    print('')
+    sys.exit(0)
+
+try:
+    data = json.loads(raw_json)
     id_token = data.get('id_token', '')
     if not id_token:
         print('')
@@ -59,17 +105,31 @@ except Exception:
 
 # Helper: Extract expiration timestamp
 get_token_exp() {
-    local token_file="$1"
-    if [[ ! -f "${token_file}" ]]; then
-        echo ""
-        return
-    fi
-
+    local token_file="${1:-}"
     python3 -c "
-import json, base64, sys, datetime
+import json, base64, sys, datetime, subprocess
+
+raw_json = ''
+if '${token_file}' and '${token_file}' != 'keychain':
+    try:
+        with open('${token_file}', 'r') as f:
+            raw_json = f.read()
+    except Exception:
+        pass
+else:
+    try:
+        out = subprocess.check_output(['security', 'find-generic-password', '-s', 'gemini', '-a', 'antigravity', '-w'], stderr=subprocess.DEVNULL).decode('utf-8').strip()
+        if out.startswith('go-keyring-base64:'):
+            raw_json = base64.b64decode(out[len('go-keyring-base64:'):]).decode('utf-8')
+    except Exception:
+        pass
+
+if not raw_json:
+    print('')
+    sys.exit(0)
+
 try:
-    with open('${token_file}', 'r') as f:
-        data = json.load(f)
+    data = json.loads(raw_json)
     id_token = data.get('id_token', '')
     if not id_token:
         print('')
@@ -91,26 +151,34 @@ except Exception:
 # Helper: Show current active session
 cmd_current() {
     echo -e "${BOLD}${CYAN}=== Antigravity CLI Active Session ===${NC}"
-    if [[ ! -f "${ACTIVE_TOKEN}" ]]; then
-        echo -e "${YELLOW}Status:${NC} No active session token found."
-        echo -e "Path:   ${ACTIVE_TOKEN}"
+    
+    local email="" exp="" src=""
+
+    if [[ -f "${ACTIVE_TOKEN}" ]]; then
+        email=$(get_token_email "${ACTIVE_TOKEN}")
+        exp=$(get_token_exp "${ACTIVE_TOKEN}")
+        src="File (${ACTIVE_TOKEN})"
+    else
+        # Check Keychain
+        email=$(get_token_email "keychain")
+        if [[ -n "${email}" ]]; then
+            exp=$(get_token_exp "keychain")
+            src="macOS Keychain (keyring: gemini/antigravity)"
+        fi
+    fi
+
+    if [[ -z "${email}" ]]; then
+        echo -e "${YELLOW}Status:${NC} Detached / No active session found."
+        echo -e "Ready for fresh login via Antigravity CLI."
         return 0
     fi
 
-    local email exp modified
-    email=$(get_token_email "${ACTIVE_TOKEN}")
-    exp=$(get_token_exp "${ACTIVE_TOKEN}")
-    modified=$(stat -f "%Sm" -t "%Y-%m-%d %H:%M:%S" "${ACTIVE_TOKEN}" 2>/dev/null || date)
-
-    if [[ -n "${email}" ]]; then
-        echo -e "${GREEN}Active Account:${NC} ${BOLD}${email}${NC}"
-    else
-        echo -e "${YELLOW}Active Account:${NC} Token exists (no email parsed in id_token)"
-    fi
-
+    echo -e "${GREEN}Active Account:${NC} ${BOLD}${email}${NC}"
     [[ -n "${exp}" ]] && echo -e "Token Expiry:   ${exp}"
-    echo -e "Token File:     ${ACTIVE_TOKEN}"
-    echo -e "Last Modified:  ${modified}"
+    echo -e "Storage Source: ${src}"
+    if [[ -f "${ACTIVE_TOKEN}" ]]; then
+        echo -e "Last Modified:  $(stat -f "%Sm" -t "%Y-%m-%d %H:%M:%S" "${ACTIVE_TOKEN}" 2>/dev/null || date)"
+    fi
 }
 
 # Helper: Save current active session
@@ -118,13 +186,17 @@ cmd_save() {
     ensure_vault_dirs
     local target_name="${1:-}"
 
-    if [[ ! -f "${ACTIVE_TOKEN}" ]]; then
-        echo -e "${RED}Error:${NC} No active token file found at ${ACTIVE_TOKEN} to save."
-        exit 1
+    local email=""
+    if [[ -f "${ACTIVE_TOKEN}" ]]; then
+        email=$(get_token_email "${ACTIVE_TOKEN}")
+    else
+        email=$(get_token_email "keychain")
     fi
 
-    local email
-    email=$(get_token_email "${ACTIVE_TOKEN}")
+    if [[ -z "${email}" && ! -f "${ACTIVE_TOKEN}" ]]; then
+        echo -e "${RED}Error:${NC} No active token found in file or macOS Keychain to save."
+        exit 1
+    fi
 
     if [[ -z "${target_name}" ]]; then
         if [[ -n "${email}" ]]; then
@@ -140,7 +212,12 @@ cmd_save() {
     mkdir -p "${profile_path}"
     chmod 700 "${profile_path}"
 
-    cp "${ACTIVE_TOKEN}" "${profile_path}/antigravity-oauth-token"
+    if [[ -f "${ACTIVE_TOKEN}" ]]; then
+        cp "${ACTIVE_TOKEN}" "${profile_path}/antigravity-oauth-token"
+    else
+        # Dump from keychain
+        keychain_read_token > "${profile_path}/antigravity-oauth-token"
+    fi
     chmod 600 "${profile_path}/antigravity-oauth-token"
 
     if [[ -f "${ACTIVE_CREDS}" ]]; then
@@ -170,8 +247,13 @@ EOF
 cmd_list() {
     ensure_vault_dirs
     echo -e "${BOLD}${BLUE}=== Vaulted Antigravity Profiles ===${NC}"
-    local active_email
-    active_email=$(get_token_email "${ACTIVE_TOKEN}")
+    
+    local active_email=""
+    if [[ -f "${ACTIVE_TOKEN}" ]]; then
+        active_email=$(get_token_email "${ACTIVE_TOKEN}")
+    else
+        active_email=$(get_token_email "keychain")
+    fi
 
     local count=0
     for dir in "${PROFILES_DIR}"/*; do
@@ -213,20 +295,29 @@ cmd_list() {
 cmd_detach() {
     ensure_vault_dirs
     echo -e "${YELLOW}Preparing to detach current session...${NC}"
-    if [[ -f "${ACTIVE_TOKEN}" ]]; then
-        local email
-        email=$(get_token_email "${ACTIVE_TOKEN}")
-        local auto_name="${email:-backup_$(date +%s)}"
-        echo -e "1. Auto-saving active session as '${BOLD}${auto_name}${NC}'..."
-        cmd_save "${auto_name}" >/dev/null
 
-        echo -e "2. Removing active token from ${ACTIVE_TOKEN}..."
-        rm -f "${ACTIVE_TOKEN}"
-        echo -e "${GREEN}✔ Active token successfully detached.${NC}"
+    local email=""
+    if [[ -f "${ACTIVE_TOKEN}" ]]; then
+        email=$(get_token_email "${ACTIVE_TOKEN}")
     else
-        echo -e "No active token was found at ${ACTIVE_TOKEN}."
+        email=$(get_token_email "keychain")
     fi
 
+    if [[ -n "${email}" ]]; then
+        local auto_name="${email}"
+        echo -e "1. Auto-saving active session for '${BOLD}${auto_name}${NC}'..."
+        cmd_save "${auto_name}" >/dev/null
+    fi
+
+    # 2. Remove active file
+    echo -e "2. Removing file token: ${ACTIVE_TOKEN}..."
+    rm -f "${ACTIVE_TOKEN}"
+
+    # 3. Clear macOS Keychain entry
+    echo -e "3. Clearing macOS Keychain entry (gemini/antigravity)..."
+    keychain_delete_token
+
+    echo -e "${GREEN}✔ Active session successfully detached!${NC}"
     echo -e "\n${BOLD}${CYAN}Next Steps to Authenticate Second Account:${NC}"
     echo -e "  1. Run Antigravity CLI or send a prompt."
     echo -e "  2. The CLI will request an OAuth login. Complete the login with your new account."
@@ -248,22 +339,28 @@ cmd_switch() {
     fi
 
     # Auto-preserve current active session first if it exists
+    local current_email=""
     if [[ -f "${ACTIVE_TOKEN}" ]]; then
-        local current_email
         current_email=$(get_token_email "${ACTIVE_TOKEN}")
-        if [[ -n "${current_email}" && "${current_email}" != "${target}" ]]; then
-            cmd_save "${current_email}" >/dev/null 2>&1 || true
-        fi
+    else
+        current_email=$(get_token_email "keychain")
     fi
 
-    # Atomic write to ACTIVE_TOKEN
+    if [[ -n "${current_email}" && "${current_email}" != "${target}" ]]; then
+        cmd_save "${current_email}" >/dev/null 2>&1 || true
+    fi
+
+    # 1. Atomic write to ACTIVE_TOKEN file
     mkdir -p "${CLI_DIR}"
     local tmp_file="${CLI_DIR}/.antigravity-oauth-token.tmp.$$"
     cp "${profile_path}/antigravity-oauth-token" "${tmp_file}"
     chmod 600 "${tmp_file}"
     mv "${tmp_file}" "${ACTIVE_TOKEN}"
 
-    # Restore oauth_creds.json if present
+    # 2. Sync to macOS Keychain
+    keychain_sync_token "${ACTIVE_TOKEN}"
+
+    # 3. Restore oauth_creds.json if present
     if [[ -f "${profile_path}/oauth_creds.json" ]]; then
         local tmp_creds="${GEMINI_DIR}/.oauth_creds.tmp.$$"
         cp "${profile_path}/oauth_creds.json" "${tmp_creds}"
@@ -271,7 +368,7 @@ cmd_switch() {
         mv "${tmp_creds}" "${ACTIVE_CREDS}"
     fi
 
-    # Restore google_accounts.json if present
+    # 4. Restore google_accounts.json if present
     if [[ -f "${profile_path}/google_accounts.json" ]]; then
         local tmp_accs="${GEMINI_DIR}/.google_accounts.tmp.$$"
         cp "${profile_path}/google_accounts.json" "${tmp_accs}"
