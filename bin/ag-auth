@@ -228,10 +228,10 @@ cmd_detach() {
     fi
 
     echo -e "\n${BOLD}${CYAN}Next Steps to Authenticate Second Account:${NC}"
-    echo "  1. Run Antigravity CLI or send a prompt."
-    echo "  2. The CLI will request an OAuth login. Complete the login with your new account."
-    echo "  3. Once authenticated, run: ${BOLD}ag-auth save${NC}"
-    echo "  4. Switch between accounts anytime using: ${BOLD}ag-auth switch <email_or_profile>${NC}"
+    echo -e "  1. Run Antigravity CLI or send a prompt."
+    echo -e "  2. The CLI will request an OAuth login. Complete the login with your new account."
+    echo -e "  3. Once authenticated, run: ${BOLD}ag-auth save${NC}"
+    echo -e "  4. Switch between accounts anytime using: ${BOLD}ag-auth switch <email_or_profile>${NC}"
 }
 
 # Helper: Switch to a profile
