@@ -2,12 +2,12 @@
 # ==============================================================================
 # ag-auth: Antigravity CLI Multi-Account Session Vault & Token Switcher
 # Seamlessly switch between multiple Google accounts on Antigravity CLI
-# without re-authenticating or losing session credentials.
-# Supports interactive arrow-key selection (↑/↓ + Enter) & quick @ shortcut.
+# with real-time AI quota monitoring (Gemini & Claude limits),
+# token auto-refresh, and interactive arrow-key account switching.
 # ==============================================================================
 set -euo pipefail
 
-VERSION="1.2.0"
+VERSION="1.3.0"
 GEMINI_DIR="${HOME}/.gemini"
 CLI_DIR="${GEMINI_DIR}/antigravity-cli"
 ACTIVE_TOKEN="${CLI_DIR}/antigravity-oauth-token"
@@ -24,6 +24,7 @@ RED='\033[0;31m'
 CYAN='\033[0;36m'
 MAGENTA='\033[0;35m'
 BOLD='\033[1m'
+DIM='\033[2m'
 NC='\033[0m' # No Color
 
 ensure_vault_dirs() {
@@ -148,7 +149,468 @@ except Exception:
 " 2>/dev/null
 }
 
-# Interactive Arrow-Key Profile Picker (↑ / ↓ + Enter)
+# ==============================================================================
+# Python Vault & Quota Engine
+# Handles token refresh, quota summary API, and rich formatting.
+# ==============================================================================
+run_vault_python() {
+    python3 - "$@" << 'PYEOF'
+import sys, os, json, time, datetime, urllib.request, urllib.parse, termios, tty
+from concurrent.futures import ThreadPoolExecutor
+
+# Styling
+GREEN = '\033[0;32m'
+BLUE = '\033[0;34m'
+YELLOW = '\033[1;33m'
+RED = '\033[0;31m'
+CYAN = '\033[0;36m'
+MAGENTA = '\033[0;35m'
+BOLD = '\033[1m'
+DIM = '\033[2m'
+NC = '\033[0m'
+
+CLIENT_ID = '1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com'
+CLIENT_SECRET = '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'
+TOKEN_URL = 'https://oauth2.googleapis.com/token'
+QUOTA_URL = 'https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary'
+CACHE_TTL = 180  # 3 minutes cache
+
+def color_pct(pct):
+    if pct is None:
+        return f'{DIM}N/A{NC}'
+    if pct >= 50:
+        return f'{GREEN}{pct:5.1f}%{NC}'
+    elif pct >= 20:
+        return f'{YELLOW}{pct:5.1f}%{NC}'
+    else:
+        return f'{RED}{pct:5.1f}%{NC}'
+
+def render_bar(pct, width=10):
+    if pct is None:
+        return f'{DIM}[{"░" * width}]{NC}'
+    filled = int(round((pct / 100.0) * width))
+    filled = max(0, min(width, filled))
+    empty = width - filled
+    bar = '█' * filled + '░' * empty
+    if pct >= 50:
+        return f'{GREEN}[{bar}]{NC}'
+    elif pct >= 20:
+        return f'{YELLOW}[{bar}]{NC}'
+    else:
+        return f'{RED}[{bar}]{NC}'
+
+def format_relative_time(target_iso):
+    if not target_iso:
+        return 'unknown'
+    try:
+        clean = target_iso.replace('Z', '+00:00')
+        target_dt = datetime.datetime.fromisoformat(clean)
+        now = datetime.datetime.now(datetime.timezone.utc)
+        diff = target_dt - now
+        secs = int(diff.total_seconds())
+        if secs <= 0:
+            return 'now'
+        days = secs // 86400
+        hours = (secs % 86400) // 3600
+        mins = (secs % 3600) // 60
+        if days > 0:
+            return f'{days}d {hours}h'
+        if hours > 0:
+            return f'{hours}h {mins}m'
+        return f'{mins}m'
+    except Exception:
+        return target_iso
+
+def refresh_token(refresh_tok):
+    data = {
+        'client_id': CLIENT_ID,
+        'client_secret': CLIENT_SECRET,
+        'refresh_token': refresh_tok,
+        'grant_type': 'refresh_token',
+    }
+    req = urllib.request.Request(
+        TOKEN_URL,
+        data=urllib.parse.urlencode(data).encode('utf-8'),
+        headers={'Content-Type': 'application/x-www-form-urlencoded'}
+    )
+    with urllib.request.urlopen(req, timeout=10) as resp:
+        return json.loads(resp.read().decode('utf-8'))
+
+def get_profile_quota(profile_path, force=False):
+    cache_path = os.path.join(profile_path, 'quota_cache.json')
+    if not force and os.path.exists(cache_path):
+        try:
+            with open(cache_path) as f:
+                c = json.load(f)
+            if time.time() - c.get('fetched_at', 0) < CACHE_TTL:
+                return c.get('data')
+        except Exception:
+            pass
+
+    token_path = os.path.join(profile_path, 'antigravity-oauth-token')
+    if not os.path.exists(token_path):
+        return {'error': 'No token file found'}
+
+    try:
+        with open(token_path) as f:
+            tok_data = json.load(f)
+    except Exception as e:
+        return {'error': f'Failed to read token: {e}'}
+
+    tok_obj = tok_data.get('token', {})
+    access_token = tok_obj.get('access_token')
+    refresh_tok = tok_obj.get('refresh_token')
+    expiry = tok_obj.get('expiry')
+
+    is_expired = False
+    if expiry:
+        try:
+            exp_clean = expiry.replace('Z', '+00:00')
+            exp_dt = datetime.datetime.fromisoformat(exp_clean)
+            now = datetime.datetime.now(exp_dt.tzinfo)
+            if (exp_dt - now).total_seconds() < 60:
+                is_expired = True
+        except Exception:
+            is_expired = True
+    else:
+        is_expired = True
+
+    if is_expired and refresh_tok:
+        try:
+            ref = refresh_token(refresh_tok)
+            access_token = ref.get('access_token')
+            tok_obj['access_token'] = access_token
+            if 'id_token' in ref:
+                tok_data['id_token'] = ref['id_token']
+            if 'expires_in' in ref:
+                new_exp = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(seconds=ref['expires_in'])
+                tok_obj['expiry'] = new_exp.isoformat()
+            tok_data['token'] = tok_obj
+            with open(token_path, 'w') as f:
+                json.dump(tok_data, f, indent=2)
+            os.chmod(token_path, 0o600)
+        except Exception as e:
+            return {'error': f'Token refresh failed: {e}'}
+
+    if not access_token:
+        return {'error': 'No access token available'}
+
+    qreq = urllib.request.Request(
+        QUOTA_URL,
+        data=b'{}',
+        headers={
+            'Authorization': f'Bearer {access_token}',
+            'Content-Type': 'application/json',
+            'User-Agent': 'antigravity-cli'
+        }
+    )
+    try:
+        with urllib.request.urlopen(qreq, timeout=10) as qresp:
+            qdata = json.loads(qresp.read().decode('utf-8'))
+    except Exception as e:
+        return {'error': f'Quota request failed: {e}'}
+
+    parsed = {
+        'gemini': {},
+        'claude': {}
+    }
+    for g in qdata.get('groups', []):
+        gname = g.get('displayName', '').lower()
+        target_group = 'gemini' if 'gemini' in gname else 'claude'
+        for b in g.get('buckets', []):
+            window = b.get('window', '')
+            frac = b.get('remainingFraction', 0.0)
+            reset_time = b.get('resetTime', '')
+            parsed[target_group][window] = {
+                'fraction': frac,
+                'pct': round(frac * 100, 1),
+                'reset_time': reset_time,
+                'resets_in': format_relative_time(reset_time),
+                'desc': b.get('description', '')
+            }
+
+    try:
+        with open(cache_path, 'w') as f:
+            json.dump({'fetched_at': time.time(), 'data': parsed}, f)
+        os.chmod(cache_path, 0o600)
+    except Exception:
+        pass
+
+    return parsed
+
+def get_vault_profiles(vault_dir):
+    profiles = []
+    if os.path.exists(vault_dir):
+        for d in sorted(os.listdir(vault_dir)):
+            p = os.path.join(vault_dir, d)
+            token_path = os.path.join(p, 'antigravity-oauth-token')
+            if os.path.isdir(p) and os.path.exists(token_path):
+                profiles.append(d)
+    return profiles
+
+# --- CLI Action: list ---
+def cli_list(vault_dir, active_email, force=False):
+    profiles = get_vault_profiles(vault_dir)
+    if not profiles:
+        print(f"{YELLOW}No profiles found in vault ({vault_dir}).{NC}")
+        print(f"Run '{BOLD}ag-auth save{NC}' to archive the current active session.")
+        return
+
+    print(f"{BOLD}{BLUE}=== Vaulted Antigravity Profiles & Quotas ==={NC}\n")
+
+    # Fetch quotas concurrently
+    def fetch_p(pname):
+        pdir = os.path.join(vault_dir, pname)
+        q = get_profile_quota(pdir, force=force)
+        # get token expiry
+        exp_str = ''
+        try:
+            with open(os.path.join(pdir, 'antigravity-oauth-token')) as f:
+                tdata = json.load(f)
+            tok = tdata.get('id_token', '')
+            if tok:
+                import base64
+                claims = json.loads(base64.urlsafe_b64decode(tok.split('.')[1] + '==='))
+                if claims.get('exp'):
+                    dt = datetime.datetime.fromtimestamp(claims['exp'], datetime.timezone.utc)
+                    exp_str = dt.strftime('%Y-%m-%d %H:%M:%S UTC')
+        except Exception:
+            pass
+        return pname, q, exp_str
+
+    with ThreadPoolExecutor(max_workers=5) as ex:
+        results = list(ex.map(fetch_p, profiles))
+
+    for pname, q, exp_str in results:
+        is_active = (pname == active_email)
+        prefix = f"{GREEN}▶ {BOLD}{pname}{NC} {GREEN}[CURRENT ACTIVE]{NC}" if is_active else f"    {BOLD}{pname}{NC}"
+        print(prefix)
+
+        if 'error' in q:
+            print(f"      {DIM}Quota: {q['error']}{NC}")
+        elif 'gemini' in q:
+            gw = q['gemini'].get('weekly', {})
+            g5 = q['gemini'].get('5h', {})
+            cw = q['claude'].get('weekly', {})
+            c5 = q['claude'].get('5h', {})
+
+            gw_bar = render_bar(gw.get('pct'))
+            gw_pct = color_pct(gw.get('pct'))
+            g5_pct = color_pct(g5.get('pct'))
+            gw_reset = f" {DIM}(resets: {gw.get('resets_in')}){NC}" if (gw.get('resets_in') and gw.get('resets_in') != 'now' and gw.get('pct', 100) < 100) else ""
+            print(f"      Gemini:  {gw_bar} {gw_pct} weekly{gw_reset} | {g5_pct} 5h")
+
+            cw_bar = render_bar(cw.get('pct'))
+            cw_pct = color_pct(cw.get('pct'))
+            c5_pct = color_pct(c5.get('pct'))
+            cw_reset = f" {DIM}(resets: {cw.get('resets_in')}){NC}" if (cw.get('resets_in') and cw.get('resets_in') != 'now' and cw.get('pct', 100) < 100) else ""
+            print(f"      Claude:  {cw_bar} {cw_pct} weekly{cw_reset} | {c5_pct} 5h")
+
+        if exp_str:
+            print(f"      {DIM}Token Expiry: {exp_str}{NC}")
+        print()
+
+# --- CLI Action: quota dashboard ---
+def cli_quota(vault_dir, active_email, target_profile=None, force=False):
+    profiles = get_vault_profiles(vault_dir)
+    if target_profile:
+        if target_profile not in profiles:
+            print(f"{RED}Error:{NC} Profile '{target_profile}' not found in vault.")
+            sys.exit(1)
+        profiles = [target_profile]
+
+    if not profiles:
+        print(f"{YELLOW}No profiles found in vault ({vault_dir}).{NC}")
+        return
+
+    print(f"{BOLD}{MAGENTA}========================================{NC}")
+    print(f"{BOLD}{MAGENTA}  Antigravity AI Quota Dashboard        {NC}")
+    print(f"{BOLD}{MAGENTA}========================================{NC}\n")
+
+    def fetch_p(pname):
+        pdir = os.path.join(vault_dir, pname)
+        return pname, get_profile_quota(pdir, force=force)
+
+    with ThreadPoolExecutor(max_workers=5) as ex:
+        results = list(ex.map(fetch_p, profiles))
+
+    for pname, q in results:
+        is_active = (pname == active_email)
+        tag = f" {GREEN}[CURRENT ACTIVE]{NC}" if is_active else ""
+        print(f"{BOLD}{CYAN}Account: {pname}{NC}{tag}")
+
+        if 'error' in q:
+            print(f"  {RED}Quota Error:{NC} {q['error']}\n")
+            continue
+
+        gem = q.get('gemini', {})
+        gw = gem.get('weekly', {})
+        g5 = gem.get('5h', {})
+
+        print(f"  {BOLD}• Gemini Models (Flash, Pro):{NC}")
+        gw_bar = render_bar(gw.get('pct'), width=12)
+        gw_pct = color_pct(gw.get('pct'))
+        gw_res = f" {DIM}(resets in {gw.get('resets_in')}){NC}" if gw.get('resets_in') and gw.get('pct', 100) < 100 else ""
+        print(f"      Weekly Limit:  {gw_bar} {gw_pct}{gw_res}")
+
+        g5_bar = render_bar(g5.get('pct'), width=12)
+        g5_pct = color_pct(g5.get('pct'))
+        g5_res = f" {DIM}(resets in {g5.get('resets_in')}){NC}" if g5.get('resets_in') and g5.get('pct', 100) < 100 else ""
+        print(f"      5-Hour Window: {g5_bar} {g5_pct}{g5_res}")
+
+        cld = q.get('claude', {})
+        cw = cld.get('weekly', {})
+        c5 = cld.get('5h', {})
+
+        print(f"  {BOLD}• Claude & GPT Models (Sonnet, Opus, GPT-OSS):{NC}")
+        cw_bar = render_bar(cw.get('pct'), width=12)
+        cw_pct = color_pct(cw.get('pct'))
+        cw_res = f" {DIM}(resets in {cw.get('resets_in')}){NC}" if cw.get('resets_in') and cw.get('pct', 100) < 100 else ""
+        print(f"      Weekly Limit:  {cw_bar} {cw_pct}{cw_res}")
+
+        c5_bar = render_bar(c5.get('pct'), width=12)
+        c5_pct = color_pct(c5.get('pct'))
+        c5_res = f" {DIM}(resets in {c5.get('resets_in')}){NC}" if c5.get('resets_in') and c5.get('pct', 100) < 100 else ""
+        print(f"      5-Hour Window: {c5_bar} {c5_pct}{c5_res}\n")
+
+# --- CLI Action: current active quota ---
+def cli_current_quota(vault_dir, active_email):
+    if not active_email:
+        return
+    pdir = os.path.join(vault_dir, active_email)
+    if not os.path.exists(pdir):
+        return
+    q = get_profile_quota(pdir, force=False)
+    if not q or 'error' in q:
+        return
+
+    print(f"\n{BOLD}AI Quota Limits:{NC}")
+    gw = q.get('gemini', {}).get('weekly', {})
+    g5 = q.get('gemini', {}).get('5h', {})
+    cw = q.get('claude', {}).get('weekly', {})
+    c5 = q.get('claude', {}).get('5h', {})
+
+    gw_bar = render_bar(gw.get('pct'))
+    gw_pct = color_pct(gw.get('pct'))
+    gw_res = f" {DIM}(resets: {gw.get('resets_in')}){NC}" if (gw.get('resets_in') and gw.get('pct', 100) < 100) else ""
+    g5_pct = color_pct(g5.get('pct'))
+    print(f"  Gemini: {gw_bar} {gw_pct} weekly{gw_res} | {g5_pct} 5h")
+
+    cw_bar = render_bar(cw.get('pct'))
+    cw_pct = color_pct(cw.get('pct'))
+    cw_res = f" {DIM}(resets: {cw.get('resets_in')}){NC}" if (cw.get('resets_in') and cw.get('pct', 100) < 100) else ""
+    c5_pct = color_pct(c5.get('pct'))
+    print(f"  Claude: {cw_bar} {cw_pct} weekly{cw_res} | {c5_pct} 5h")
+
+# --- CLI Action: interactive picker with inline quota ---
+def cli_pick_interactive(vault_dir, active_email):
+    profiles = get_vault_profiles(vault_dir)
+    if not profiles:
+        sys.stderr.write(f"{YELLOW}No saved profiles found in vault.{NC}\n")
+        sys.exit(1)
+
+    # Fetch quotas (fast cached read)
+    def fetch_p(pname):
+        pdir = os.path.join(vault_dir, pname)
+        q = get_profile_quota(pdir, force=False)
+        tag = ''
+        if q and 'gemini' in q:
+            gp = q['gemini'].get('weekly', {}).get('pct')
+            cp = q['claude'].get('weekly', {}).get('pct')
+            parts = []
+            if gp is not None:
+                parts.append(f"Gem: {color_pct(gp)}")
+            if cp is not None:
+                parts.append(f"Cld: {color_pct(cp)}")
+            if parts:
+                tag = f"[{' | '.join(parts)}]"
+        return pname, tag
+
+    with ThreadPoolExecutor(max_workers=5) as ex:
+        items = list(ex.map(fetch_p, profiles))
+
+    try:
+        tty_fd = os.open('/dev/tty', os.O_RDONLY)
+        if not os.isatty(tty_fd):
+            raise OSError("Not a tty")
+    except Exception:
+        # Fallback if not interactive
+        sys.stdout.write(items[0][0])
+        sys.exit(0)
+
+    old_settings = termios.tcgetattr(tty_fd)
+    selected = 0
+    # Set default selection to non-active profile if currently on active
+    for idx, (name, _) in enumerate(items):
+        if name != active_email:
+            selected = idx
+            break
+
+    sys.stderr.write('\033[?25l')  # Hide cursor
+    try:
+        tty.setraw(tty_fd)
+        while True:
+            out = ['\r\033[K\033[1;36mSelect Antigravity Account (\u2191/\u2193 arrow keys, Enter to switch, q to cancel):\033[0m\n\r']
+            for i, (name, tag) in enumerate(items):
+                is_active = f' {GREEN}[CURRENT ACTIVE]{NC}' if name == active_email else ''
+                tag_str = f'  {tag}' if tag else ''
+                if i == selected:
+                    out.append(f'\r\033[K  {GREEN}{BOLD}\u25b6 [{i+1}] {name}{NC}{tag_str}{is_active}\n\r')
+                else:
+                    out.append(f'\r\033[K    [{i+1}] {name}{tag_str}{is_active}\n\r')
+            sys.stderr.write(''.join(out))
+            sys.stderr.write(f'\033[{len(items) + 1}A')
+            sys.stderr.flush()
+
+            ch = os.read(tty_fd, 1).decode('utf-8', errors='ignore')
+            if ch == '\x1b':
+                seq = os.read(tty_fd, 2).decode('utf-8', errors='ignore')
+                if seq == '[A':  # Up arrow
+                    selected = (selected - 1) % len(items)
+                elif seq == '[B':  # Down arrow
+                    selected = (selected + 1) % len(items)
+            elif ch.isdigit() and 1 <= int(ch) <= len(items):
+                selected = int(ch) - 1
+                sys.stderr.write(f'\033[{len(items) + 1}B\r\n')
+                sys.stderr.flush()
+                sys.stdout.write(items[selected][0])
+                sys.exit(0)
+            elif ch in ('\r', '\n'):
+                sys.stderr.write(f'\033[{len(items) + 1}B\r\n')
+                sys.stderr.flush()
+                sys.stdout.write(items[selected][0])
+                sys.exit(0)
+            elif ch in ('\x03', 'q', 'Q'):  # Cancel
+                sys.stderr.write(f'\033[{len(items) + 1}B\r\n\033[1;33mCancelled.\033[0m\n\r')
+                sys.stderr.flush()
+                sys.exit(1)
+    finally:
+        sys.stderr.write('\033[?25h')  # Restore cursor
+        sys.stderr.flush()
+        termios.tcsetattr(tty_fd, termios.TCSADRAIN, old_settings)
+        os.close(tty_fd)
+
+# Dispatcher inside python engine
+if __name__ == '__main__':
+    action = sys.argv[1] if len(sys.argv) > 1 else 'list'
+    v_dir = os.path.expanduser(sys.argv[2]) if len(sys.argv) > 2 else ''
+    act_email = sys.argv[3] if len(sys.argv) > 3 else ''
+
+    if action == 'list':
+        force_flag = (len(sys.argv) > 4 and sys.argv[4] == 'true')
+        cli_list(v_dir, act_email, force=force_flag)
+    elif action == 'quota':
+        target = sys.argv[4] if len(sys.argv) > 4 and sys.argv[4] != '' else None
+        force_flag = (len(sys.argv) > 5 and sys.argv[5] == 'true')
+        cli_quota(v_dir, act_email, target_profile=target, force=force_flag)
+    elif action == 'current_quota':
+        cli_current_quota(v_dir, act_email)
+    elif action == 'pick':
+        cli_pick_interactive(v_dir, act_email)
+PYEOF
+}
+
+# Interactive Arrow-Key Profile Picker
 pick_profile_interactive() {
     local active_email=""
     if [[ -f "${ACTIVE_TOKEN}" ]]; then
@@ -157,93 +619,7 @@ pick_profile_interactive() {
         active_email=$(get_token_email "keychain")
     fi
 
-    python3 -c "
-import sys, os, tty, termios, json, base64, datetime
-
-vault_dir = os.path.expanduser('${PROFILES_DIR}')
-active_email = '${active_email}'
-
-items = []
-if os.path.exists(vault_dir):
-    for d in sorted(os.listdir(vault_dir)):
-        p = os.path.join(vault_dir, d)
-        token_path = os.path.join(p, 'antigravity-oauth-token')
-        if os.path.isdir(p) and os.path.exists(token_path):
-            exp = ''
-            try:
-                with open(token_path, 'r') as f:
-                    data = json.load(f)
-                tok = data.get('id_token', '')
-                claims = json.loads(base64.urlsafe_b64decode(tok.split('.')[1] + '==='))
-                if claims.get('exp'):
-                    dt = datetime.datetime.fromtimestamp(claims['exp'], datetime.timezone.utc)
-                    exp = dt.strftime('%H:%M UTC')
-            except Exception:
-                pass
-            items.append((d, exp))
-
-if not items:
-    sys.stderr.write('\033[1;33mNo saved profiles found in vault.\033[0m\n')
-    sys.exit(1)
-
-# Non-interactive fallback
-if not sys.stdin.isatty():
-    sys.stdout.write(items[0][0])
-    sys.exit(0)
-
-fd = sys.stdin.fileno()
-old_settings = termios.tcgetattr(fd)
-selected = 0
-
-# Set default selection to the non-active profile if currently on active
-for idx, (name, _) in enumerate(items):
-    if name != active_email:
-        selected = idx
-        break
-
-sys.stderr.write('\033[?25l')  # Hide cursor
-try:
-    tty.setraw(fd)
-    while True:
-        out = ['\r\033[K\033[1;36mSelect Antigravity Account (\u2191/\u2193 arrow keys, Enter to switch, q to cancel):\033[0m\n\r']
-        for i, (name, exp) in enumerate(items):
-            is_active = ' \033[1;32m[CURRENT ACTIVE]\033[0m' if name == active_email else ''
-            exp_str = f' \033[2m(exp: {exp})\033[0m' if exp else ''
-            if i == selected:
-                out.append(f'\r\033[K  \033[1;32m\u25b6 [{i+1}] {name}\033[0m{exp_str}{is_active}\n\r')
-            else:
-                out.append(f'\r\033[K    [{i+1}] {name}{exp_str}{is_active}\n\r')
-        sys.stderr.write(''.join(out))
-        sys.stderr.write(f'\033[{len(items) + 1}A')
-        sys.stderr.flush()
-
-        ch = sys.stdin.read(1)
-        if ch == '\x1b':
-            seq = sys.stdin.read(2)
-            if seq == '[A':  # Up arrow
-                selected = (selected - 1) % len(items)
-            elif seq == '[B':  # Down arrow
-                selected = (selected + 1) % len(items)
-        elif ch.isdigit() and 1 <= int(ch) <= len(items):
-            selected = int(ch) - 1
-            sys.stderr.write(f'\033[{len(items) + 1}B\r\n')
-            sys.stderr.flush()
-            sys.stdout.write(items[selected][0])
-            sys.exit(0)
-        elif ch in ('\r', '\n'):
-            sys.stderr.write(f'\033[{len(items) + 1}B\r\n')
-            sys.stderr.flush()
-            sys.stdout.write(items[selected][0])
-            sys.exit(0)
-        elif ch in ('\x03', 'q', 'Q'):  # Ctrl+C or q to cancel
-            sys.stderr.write(f'\033[{len(items) + 1}B\r\n\033[1;33mCancelled.\033[0m\n\r')
-            sys.stderr.flush()
-            sys.exit(1)
-finally:
-    sys.stderr.write('\033[?25h')  # Restore cursor
-    sys.stderr.flush()
-    termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
-"
+    run_vault_python "pick" "${PROFILES_DIR}" "${active_email}"
 }
 
 # Helper: Show current active session
@@ -277,6 +653,9 @@ cmd_current() {
     if [[ -f "${ACTIVE_TOKEN}" ]]; then
         echo -e "Last Modified:  $(stat -f "%Sm" -t "%Y-%m-%d %H:%M:%S" "${ACTIVE_TOKEN}" 2>/dev/null || date)"
     fi
+
+    # Display active quota if profile is in vault
+    run_vault_python "current_quota" "${PROFILES_DIR}" "${email}"
 }
 
 # Helper: Save current active session
@@ -341,11 +720,10 @@ EOF
     echo -e "  Vault location: ${profile_path}"
 }
 
-# Helper: List all vaulted profiles
+# Helper: List all vaulted profiles with quotas
 cmd_list() {
     ensure_vault_dirs
-    echo -e "${BOLD}${BLUE}=== Vaulted Antigravity Profiles ===${NC}"
-    
+    local refresh="${1:-false}"
     local active_email=""
     if [[ -f "${ACTIVE_TOKEN}" ]]; then
         active_email=$(get_token_email "${ACTIVE_TOKEN}")
@@ -353,40 +731,22 @@ cmd_list() {
         active_email=$(get_token_email "keychain")
     fi
 
-    local count=0
-    for dir in "${PROFILES_DIR}"/*; do
-        if [[ -d "${dir}" ]]; then
-            count=$((count + 1))
-            local pname
-            pname=$(basename "${dir}")
-            local p_email=""
-            if [[ -f "${dir}/profile.json" ]]; then
-                p_email=$(grep -o '"email": *"[^"]*"' "${dir}/profile.json" 2>/dev/null | cut -d'"' -f4 || true)
-            fi
-            if [[ -z "${p_email}" && -f "${dir}/antigravity-oauth-token" ]]; then
-                p_email=$(get_token_email "${dir}/antigravity-oauth-token")
-            fi
+    run_vault_python "list" "${PROFILES_DIR}" "${active_email}" "${refresh}"
+}
 
-            local exp=""
-            if [[ -f "${dir}/antigravity-oauth-token" ]]; then
-                exp=$(get_token_exp "${dir}/antigravity-oauth-token")
-            fi
-
-            if [[ -n "${active_email}" && ("${active_email}" == "${p_email}" || "${active_email}" == "${pname}") ]]; then
-                echo -e "  ${GREEN}▶ ${BOLD}${pname}${NC} (${p_email:-no-email}) ${GREEN}[CURRENT ACTIVE]${NC}"
-            else
-                echo -e "    ${BOLD}${pname}${NC} (${p_email:-no-email})"
-            fi
-            if [[ -n "${exp}" ]]; then
-                echo -e "      Expires: ${exp}"
-            fi
-        fi
-    done
-
-    if [[ ${count} -eq 0 ]]; then
-        echo -e "${YELLOW}No profiles found in vault (${PROFILES_DIR}).${NC}"
-        echo -e "Run '${BOLD}ag-auth save${NC}' to archive the current active session."
+# Helper: Quota dashboard
+cmd_quota() {
+    ensure_vault_dirs
+    local target_profile="${1:-}"
+    local refresh="${2:-false}"
+    local active_email=""
+    if [[ -f "${ACTIVE_TOKEN}" ]]; then
+        active_email=$(get_token_email "${ACTIVE_TOKEN}")
+    else
+        active_email=$(get_token_email "keychain")
     fi
+
+    run_vault_python "quota" "${PROFILES_DIR}" "${active_email}" "${target_profile}" "${refresh}"
 }
 
 # Helper: Detach active session to log in with a new account
@@ -394,7 +754,7 @@ cmd_detach() {
     ensure_vault_dirs
     echo -e "${YELLOW}Preparing to detach current session...${NC}"
 
-    # 0. Stop background remote-control daemon if running
+    # Stop background remote-control daemon if running
     if command -v agy >/dev/null 2>&1; then
         agy remote-control stop >/dev/null 2>&1 || true
     fi
@@ -412,11 +772,11 @@ cmd_detach() {
         cmd_save "${auto_name}" >/dev/null
     fi
 
-    # 2. Remove active file
+    # Remove active file
     echo -e "2. Removing file token: ${ACTIVE_TOKEN}..."
     rm -f "${ACTIVE_TOKEN}"
 
-    # 3. Clear macOS Keychain entry
+    # Clear macOS Keychain entry
     echo -e "3. Clearing macOS Keychain entry (gemini/antigravity)..."
     keychain_delete_token
 
@@ -531,13 +891,14 @@ cmd_interactive() {
     echo ""
     echo -e "${BOLD}Actions:${NC}"
     echo "  1) Save current session to vault"
-    echo "  2) Switch account (↑ / ↓ arrow selection)"
-    echo "  3) Detach current session (prepare for new account login)"
-    echo "  4) List all saved profiles"
-    echo "  5) Delete a profile from vault"
-    echo "  6) Exit"
+    echo "  2) Switch account (↑ / ↓ arrow selection with live quota)"
+    echo "  3) View AI quota dashboard (Gemini & Claude limits)"
+    echo "  4) List all saved profiles with quotas"
+    echo "  5) Detach current session (prepare for new account login)"
+    echo "  6) Delete a profile from vault"
+    echo "  7) Exit"
     echo ""
-    read -rp "Select an option [1-6]: " choice
+    read -rp "Select an option [1-7]: " choice
     case "${choice}" in
         1)
             read -rp "Enter profile name (press Enter to auto-detect email): " name
@@ -552,13 +913,17 @@ cmd_interactive() {
             fi
             ;;
         3)
-            cmd_detach
+            echo ""
+            cmd_quota "" false
             ;;
         4)
             echo ""
-            cmd_list
+            cmd_list false
             ;;
         5)
+            cmd_detach
+            ;;
+        6)
             echo ""
             local target
             target=$(pick_profile_interactive)
@@ -566,7 +931,7 @@ cmd_interactive() {
                 cmd_delete "${target}"
             fi
             ;;
-        6)
+        7)
             echo "Goodbye!"
             exit 0
             ;;
@@ -596,7 +961,25 @@ case "${1:-}" in
         cmd_save "${2:-}"
         ;;
     list|ls)
-        cmd_list
+        REFRESH_FLAG=false
+        for arg in "${@:2}"; do
+            if [[ "$arg" == "--refresh" || "$arg" == "-r" || "$arg" == "--force" || "$arg" == "-f" ]]; then
+                REFRESH_FLAG=true
+            fi
+        done
+        cmd_list "${REFRESH_FLAG}"
+        ;;
+    quota|limits|usage)
+        REFRESH_FLAG=false
+        TARGET_PROF=""
+        for arg in "${@:2}"; do
+            if [[ "$arg" == "--refresh" || "$arg" == "-r" || "$arg" == "--force" || "$arg" == "-f" ]]; then
+                REFRESH_FLAG=true
+            elif [[ -z "$TARGET_PROF" && "$arg" != -* ]]; then
+                TARGET_PROF="$arg"
+            fi
+        done
+        cmd_quota "${TARGET_PROF}" "${REFRESH_FLAG}"
         ;;
     detach|new|logout-temp)
         cmd_detach
@@ -614,20 +997,23 @@ case "${1:-}" in
         echo -e "${BOLD}ag-auth${NC} - Antigravity CLI Multi-Account Session Vault & Token Switcher"
         echo ""
         echo -e "${BOLD}Usage:${NC}"
-        echo "  @                           Instant interactive account switcher (↑/↓ + Enter)"
+        echo "  @                           Instant interactive account switcher with live quota (↑/↓ + Enter)"
         echo "  ag-auth switch              Interactive arrow-key account selector"
         echo "  ag-auth switch <profile>    Directly switch to an account by name/email"
-        echo "  ag-auth current             Show active account & token details"
+        echo "  ag-auth quota [--refresh]   Display detailed AI quota dashboard (Gemini & Claude limits)"
+        echo "  ag-auth quota <profile>     Display AI quota for a specific profile"
+        echo "  ag-auth list [--refresh]    List all stored profiles with inline quota bars"
+        echo "  ag-auth current             Show active account, token details, and quota"
         echo "  ag-auth save [name]         Archive current session (auto-detects email)"
-        echo "  ag-auth list                List all stored account profiles"
         echo "  ag-auth detach              Stash active session & clear token for new login"
         echo "  ag-auth delete [profile]    Remove a profile from vault"
         echo "  ag-auth                     Launch full interactive menu"
         echo ""
         echo -e "${BOLD}Examples:${NC}"
-        echo "  @                           # Just type @ and hit Enter to select with arrow keys!"
-        echo "  ag-auth switch              # Up/Down arrow selection"
-        echo "  ag-auth switch kaziaremon@gmail.com"
+        echo "  @                           # Instant switch with arrow keys and live quotas!"
+        echo "  ag-auth quota               # View full quota progress bars and reset countdowns"
+        echo "  ag-auth quota --refresh     # Bypass cache and fetch fresh quotas immediately"
+        echo "  ag-auth list                # Stored accounts overview"
         ;;
     *)
         if [[ -z "${1:-}" ]]; then
