@@ -1789,6 +1789,66 @@ cmd_db() {
     esac
 }
 
+cmd_uninstall() {
+    local purge=false
+    for arg in "$@"; do
+        if [[ "$arg" == "--purge" || "$arg" == "-p" ]]; then
+            purge=true
+        fi
+    done
+
+    local uninst_script="${HOME}/.antigravity-auth-vault/uninstall.sh"
+    if [[ -f "${uninst_script}" ]]; then
+        bash "${uninst_script}" "$@"
+        exit 0
+    fi
+
+    echo -e "${BOLD}${YELLOW}========================================================${NC}"
+    echo -e "${BOLD}${YELLOW}  Universal Antigravity Auth Vault — Uninstaller        ${NC}"
+    echo -e "${BOLD}${YELLOW}========================================================${NC}\n"
+    read -rp "Are you sure you want to delete and uninstall this program? [y/N]: " confirm
+    if [[ ! "${confirm}" =~ ^[Yy]$ ]]; then
+        echo "Uninstallation cancelled."
+        exit 0
+    fi
+
+    local hidden_dir="${HOME}/.antigravity-auth-vault"
+    local bin_dir="${HOME}/.local/bin"
+    [[ "${PLATFORM}" == "windows" ]] && bin_dir="${HOME}/bin"
+
+    echo "1. Removing installation directory..."
+    rm -rf "${hidden_dir}" 2>/dev/null || true
+
+    echo "2. Removing binary links..."
+    rm -f "${bin_dir}/ag-auth" "${bin_dir}/@" 2>/dev/null || true
+    rm -f "${bin_dir}/ag-auth.cmd" "${bin_dir}/ag-auth.ps1" "${bin_dir}/@.cmd" 2>/dev/null || true
+
+    echo "3. Removing shell completions..."
+    rm -f "${HOME}/.zfunc/_ag-auth" "${HOME}/.ag-auth-completion.bash" 2>/dev/null || true
+    rm -f "${HOME}/.config/fish/completions/ag-auth.fish" "${HOME}/.config/fish/completions/@.fish" 2>/dev/null || true
+
+    for rc in "${HOME}/.zshrc" "${HOME}/.bashrc" "${HOME}/.bash_profile"; do
+        if [[ -f "${rc}" ]]; then
+            if grep -qE "ag-auth|alias @=\"ag-auth @\"|\.zfunc|_ag-auth|\.ag-auth-completion" "${rc}" 2>/dev/null; then
+                tmp_rc="${rc}.tmp.$$"
+                grep -vE "ag-auth|alias @=\"ag-auth @\"|\.zfunc.*_ag-auth|\.ag-auth-completion" "${rc}" > "${tmp_rc}" || true
+                mv "${tmp_rc}" "${rc}"
+            fi
+        fi
+    done
+
+    if [[ "${purge}" == "true" ]]; then
+        rm -rf "${VAULT_DIR}" 2>/dev/null || true
+        echo -e "  ${GREEN}✔ Purged all local vault profiles and database configs (${VAULT_DIR}).${NC}"
+    else
+        echo -e "\n${CYAN}Notice:${NC} Your vaulted account tokens & database keys in ${BOLD}${VAULT_DIR}${NC} were kept safe."
+        echo -e "To purge all stored data, re-run with: ${BOLD}ag-auth uninstall --purge${NC}\n"
+    fi
+
+    echo -e "${GREEN}✔ Antigravity Auth Vault has been cleanly uninstalled!${NC}\n"
+    exit 0
+}
+
 # ------------------------------------------------------------------------------
 # 6. Tab Autocompletion Engine
 # ------------------------------------------------------------------------------
@@ -1821,7 +1881,7 @@ _ag_auth_completions() {
         prev="${COMP_WORDS[COMP_CWORD-1]}"
     fi
 
-    local commands="switch quota list current save detach delete db completion version help"
+    local commands="switch quota list current save detach delete db completion uninstall version help"
     local flags="--refresh -r --force -f --surface -s --help -h --version -v"
     local surfaces="all cli ide app"
     local db_cmds="setup status push pull sync auto-sync daemon disconnect"
@@ -2208,6 +2268,9 @@ case "${1:-}" in
     completion)
         cmd_completion "${2:-}"
         ;;
+    uninstall|remove-all)
+        cmd_uninstall "${@:2}"
+        ;;
     version|-v|--version)
         echo "Universal ag-auth version ${VERSION} (${PLATFORM})"
         ;;
@@ -2229,6 +2292,7 @@ case "${1:-}" in
         echo "  ag-auth save [name]               Archive current session (auto-captures CLI + IDE + 2.0)"
         echo "  ag-auth detach [-s surface]       Stash active session & clear tokens for clean login"
         echo "  ag-auth delete [profile]          Remove a profile from vault"
+        echo "  ag-auth uninstall [--purge]       Cleanly delete this tool from computer (keep or wipe data)"
         echo ""
         echo -e "${BOLD}Team Vault & Cloud Database:${NC}"
         echo "  ag-auth db setup [url] [key]      Connect database (PostgreSQL / Neon, Supabase, Folder)"
@@ -2251,6 +2315,7 @@ case "${1:-}" in
         echo "  ag-auth db sync                   # Sync and pool accounts across all team members"
         echo "  ag-auth quota --refresh           # Live AI limits with reset countdowns"
         echo "  ag-auth completion install        # One-step tab completion setup"
+        echo "  ag-auth uninstall                 # Complete clean removal from system"
         ;;
     *)
         if [[ -z "${1:-}" ]]; then

@@ -1,5 +1,6 @@
 # ==============================================================================
 # Windows PowerShell Installer for ag-auth (Universal Antigravity Auth Vault)
+# Installs to hidden directory $HOME\.antigravity-auth-vault
 # ==============================================================================
 [CmdletBinding()]
 param()
@@ -12,29 +13,42 @@ Write-Host "========================================================" -Foregroun
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $BinSource = Join-Path $ScriptDir "bin"
+$HiddenDir = Join-Path $HOME ".antigravity-auth-vault"
+$HiddenBin = Join-Path $HiddenDir "bin"
 
-# Target user directory for binaries
+# 1. Hidden system install
+Write-Host "1. Installing to hidden directory: $HiddenDir..." -ForegroundColor Cyan
+if (-not (Test-Path $HiddenBin)) {
+    New-Item -ItemType Directory -Path $HiddenBin -Force | Out-Null
+}
+Copy-Item (Join-Path $BinSource "*") $HiddenBin -Recurse -Force
+$uninst = Join-Path $ScriptDir "uninstall.ps1"
+if (Test-Path $uninst) {
+    Copy-Item $uninst $HiddenDir -Force
+}
+
+# 2. Target user directory for binaries
 $TargetDir = Join-Path $HOME "bin"
 if (-not (Test-Path $TargetDir)) {
     New-Item -ItemType Directory -Path $TargetDir -Force | Out-Null
 }
 
-Write-Host "1. Installing binaries to $TargetDir..." -ForegroundColor Cyan
-Copy-Item (Join-Path $BinSource "ag-auth") (Join-Path $TargetDir "ag-auth") -Force
-Copy-Item (Join-Path $BinSource "ag-auth.cmd") (Join-Path $TargetDir "ag-auth.cmd") -Force
-Copy-Item (Join-Path $BinSource "ag-auth.ps1") (Join-Path $TargetDir "ag-auth.ps1") -Force
-Copy-Item (Join-Path $BinSource "@.cmd") (Join-Path $TargetDir "@.cmd") -Force
+Write-Host "2. Linking executables to $TargetDir..." -ForegroundColor Cyan
+Copy-Item (Join-Path $HiddenBin "ag-auth") (Join-Path $TargetDir "ag-auth") -Force
+Copy-Item (Join-Path $HiddenBin "ag-auth.cmd") (Join-Path $TargetDir "ag-auth.cmd") -Force
+Copy-Item (Join-Path $HiddenBin "ag-auth.ps1") (Join-Path $TargetDir "ag-auth.ps1") -Force
+Copy-Item (Join-Path $HiddenBin "@.cmd") (Join-Path $TargetDir "@.cmd") -Force
 
 # Setup PATH in User Environment
 $UserPath = [Environment]::GetEnvironmentVariable("Path", "User")
 if ($UserPath -notlike "*$TargetDir*") {
-    Write-Host "2. Adding $TargetDir to User PATH..." -ForegroundColor Cyan
+    Write-Host "3. Adding $TargetDir to User PATH..." -ForegroundColor Cyan
     $NewPath = "$TargetDir;$UserPath"
     [Environment]::SetEnvironmentVariable("Path", $NewPath, "User")
     $env:Path = "$TargetDir;$env:Path"
     Write-Host "✔ PATH successfully updated." -ForegroundColor Green
 } else {
-    Write-Host "2. Target directory is already in User PATH." -ForegroundColor Green
+    Write-Host "3. Target directory is already in User PATH." -ForegroundColor Green
 }
 
 # Setup PowerShell Profile Completion & '@' Shortcut
@@ -49,7 +63,7 @@ $ShortcutBlock = @"
 function @ { & "$TargetDir\ag-auth.cmd" @ `$args }
 Register-ArgumentCompleter -Native -CommandName 'ag-auth', '@' -ScriptBlock {
     param(`$wordToComplete, `$commandAst, `$cursorPosition)
-    `$commands = @('switch', 'quota', 'list', 'current', 'save', 'detach', 'delete', 'completion', 'version', 'help')
+    `$commands = @('switch', 'quota', 'list', 'current', 'save', 'detach', 'delete', 'db', 'completion', 'uninstall', 'version', 'help')
     `$profiles = @(ag-auth _profiles 2>`$null)
     `$elements = `$commandAst.Elements
 
@@ -69,11 +83,11 @@ Register-ArgumentCompleter -Native -CommandName 'ag-auth', '@' -ScriptBlock {
 "@
 
 if ($ProfileContent -notlike "*Universal Antigravity Auth Switcher*") {
-    Write-Host "3. Registering '@' shortcut and Tab Completion in PowerShell `$PROFILE..." -ForegroundColor Cyan
+    Write-Host "4. Registering '@' shortcut and Tab Completion in PowerShell `$PROFILE..." -ForegroundColor Cyan
     Add-Content -Path $PROFILE -Value $ShortcutBlock
     Write-Host "✔ Tab autocompletion registered in $PROFILE." -ForegroundColor Green
 } else {
-    Write-Host "3. PowerShell Profile is already configured." -ForegroundColor Green
+    Write-Host "4. PowerShell Profile is already configured." -ForegroundColor Green
 }
 
 Write-Host ""

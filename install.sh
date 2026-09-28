@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 # ==============================================================================
 # Universal Installer for ag-auth (macOS & Linux)
+# Installs to hidden directory ~/.antigravity-auth-vault
 # ==============================================================================
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+HIDDEN_DIR="${HOME}/.antigravity-auth-vault"
 BIN_SRC="${SCRIPT_DIR}/bin/ag-auth"
 TARGET_DIR="${HOME}/.local/bin"
 TARGET_BIN="${TARGET_DIR}/ag-auth"
@@ -14,9 +16,18 @@ echo "  Installing Universal Antigravity Auth Vault           "
 echo "  macOS • Linux • Multi-Surface (CLI, IDE, 2.0 Desktop) "
 echo "========================================================"
 
+echo "1. Installing to hidden directory: ${HIDDEN_DIR}..."
+mkdir -p "${HIDDEN_DIR}/bin"
+cp -rf "${SCRIPT_DIR}/bin/"* "${HIDDEN_DIR}/bin/"
+[[ -f "${SCRIPT_DIR}/package.json" ]] && cp -f "${SCRIPT_DIR}/package.json" "${HIDDEN_DIR}/"
+[[ -f "${SCRIPT_DIR}/uninstall.sh" ]] && cp -f "${SCRIPT_DIR}/uninstall.sh" "${HIDDEN_DIR}/"
+chmod +x "${HIDDEN_DIR}/bin/ag-auth"
+[[ -f "${HIDDEN_DIR}/bin/cli.js" ]] && chmod +x "${HIDDEN_DIR}/bin/cli.js"
+[[ -f "${HIDDEN_DIR}/uninstall.sh" ]] && chmod +x "${HIDDEN_DIR}/uninstall.sh"
+
+echo "2. Linking binaries to ${TARGET_DIR}..."
 mkdir -p "${TARGET_DIR}"
-chmod +x "${BIN_SRC}"
-cp -f "${BIN_SRC}" "${TARGET_BIN}"
+ln -sf "${HIDDEN_DIR}/bin/ag-auth" "${TARGET_BIN}"
 chmod +x "${TARGET_BIN}"
 
 # Setup '@' symlink for instant 1-character switcher

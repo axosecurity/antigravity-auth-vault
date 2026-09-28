@@ -74,36 +74,79 @@ Seamlessly switch between multiple Google accounts on **macOS**, **Linux**, and 
 
 ## 🚀 Installation
 
-### macOS & Linux
+### 1. Instant 1-Line Installation via NPX (Recommended — Universal for macOS, Linux, Windows)
 
-#### One-line Installation
-From this repository directory:
+The easiest way to install. Simply run this in your terminal or Command Prompt:
+
 ```bash
-chmod +x install.sh
-./install.sh
+npx antigravity-auth-vault
 ```
 
-The installer automatically:
-1. Copies `ag-auth` to `~/.local/bin/ag-auth`
-2. Creates the instant `@` shortcut symlink
-3. Configures `PATH` in `~/.zshrc` / `~/.bashrc`
-4. Automatically installs **tab autocompletion** for your active shell
+The universal NPX installer automatically:
+1. Installs the program into a dedicated, hidden directory: `~/.antigravity-auth-vault` (Windows: `%USERPROFILE%\.antigravity-auth-vault`) following industry open-source standards.
+2. Links `ag-auth` and the instant `@` shortcut to your user binary path (`~/.local/bin` or `~/bin`).
+3. Verifies and configures `PATH` in your shell startup files (`~/.zshrc`, `~/.bashrc`, or Windows User Environment).
+4. Automatically installs **tab autocompletion** for your active shell (Bash, Zsh, Fish, or PowerShell).
+5. Tests and displays your current active Antigravity session and AI quota.
 
 ---
 
-### Windows (PowerShell & Command Prompt)
+### 2. Native Shell Scripts
 
-#### One-line Installation
-Run in PowerShell (as your standard user):
+#### macOS & Linux
+```bash
+git clone https://github.com/axosecurity/antigravity-auth-vault.git
+cd antigravity-auth-vault && ./install.sh
+```
+
+#### Windows (PowerShell)
 ```powershell
+git clone https://github.com/axosecurity/antigravity-auth-vault.git
+cd antigravity-auth-vault
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 .\install.ps1
 ```
 
-The Windows installer automatically:
-1. Copies `ag-auth`, `ag-auth.cmd`, `ag-auth.ps1`, and `@.cmd` to `~/bin/`
-2. Configures your User `PATH` environment variable
-3. Registers `@` shortcut and tab autocompletion in your PowerShell `$PROFILE`
+---
+
+## 🗑️ Clean Deletion & Uninstallation
+
+You can cleanly remove this program from your computer at any time.
+
+### From the CLI
+```bash
+ag-auth uninstall
+```
+
+### Or via NPX
+```bash
+npx antigravity-auth-vault uninstall
+```
+
+### Optional: Wipe Vaulted Tokens as Well
+By default, the uninstaller preserves your vaulted account profiles in `~/.gemini/auth_vault` so you never accidentally lose your tokens. If you wish to perform a complete wipe of all saved credentials and database keys:
+```bash
+ag-auth uninstall --purge
+# Or
+npx antigravity-auth-vault uninstall --purge
+```
+
+The uninstaller cleanly deletes:
+- The hidden installation directory (`~/.antigravity-auth-vault`)
+- All binary links (`ag-auth` and `@`)
+- Shell tab completion scripts (`_ag-auth`, `.ag-auth-completion.bash`, fish completions)
+- Shell startup aliases from `~/.zshrc`, `~/.bashrc`, and PowerShell `$PROFILE`
+
+---
+
+## 🛡️ Database Key & Local Credential Security
+
+Security and confidentiality are core to the architecture of Antigravity Auth Vault:
+1. **Isolated Storage**: Database connection keys and configuration are stored in `~/.gemini/auth_vault/db_config.json` with strict `0600` permissions, completely outside any git repository.
+2. **Zero-Knowledge Encryption**: Tokens are encrypted locally using **AES-256-CBC (PBKDF2 with 100,000 iterations)** before transmission to your database.
+3. **Hardened `.gitignore`**: Remote database configurations, local tokens, account maps, `.env`, and secret files are permanently excluded from Git.
+4. **Git Pre-Commit Security Guard**: Built-in `.githooks/pre-commit` scans staged files and diffs, automatically blocking any commit containing connection strings with passwords or credential files.
+5. **Password Masking**: Terminal outputs (e.g. `ag-auth db status`) automatically mask connection passwords to prevent disclosure in terminal history or screen sharing.
 
 ---
 

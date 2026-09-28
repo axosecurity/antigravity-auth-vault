@@ -1,14 +1,45 @@
-# OS & System
+# ==============================================================================
+# Git Ignore Rules — Antigravity Auth Vault
+# Ensures credentials, tokens, and database keys are NEVER committed to GitHub
+# ==============================================================================
+
+# OS & System Artifacts
 .DS_Store
+Thumbs.db
 *.tmp
 *.log
 
-# Sensitive Credentials Protection
+# Sensitive Database Configuration & Remote Connection Keys
+db_config.json
+*db_config*.json
+*.vault.enc
+.last_auto_sync
+.last_auto_pull
+.last_pull
+
+# Stored Tokens, Account Files, and Encryption Keys
 *token*
 *creds*
+*google_accounts*.json
 *.pbtxt
 *.key
 *.pem
 *.env
+*.env.*
+*.local
 auth_vault/
 profiles/
+
+# Local SQLite databases & surface state
+*.sqlite
+*.sqlite3
+*.db
+*.vscdb
+
+# Node.js & NPX Distribution Artifacts
+node_modules/
+package-lock.json
+.npm/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
