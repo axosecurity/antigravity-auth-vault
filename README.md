@@ -192,11 +192,23 @@ Point `ag-auth` to any internal team microservice or Cloudflare Worker that acce
 
 ---
 
+### 🔄 Continuous Automatic Synchronization
+
+Once connected to a database, you never have to manually push or pull accounts:
+- **Instant Initial Sync**: Connecting immediately syncs local and remote vaults.
+- **Auto-Push on Save**: Running `ag-auth save` automatically encrypts and pushes the saved account directly to the team cloud database.
+- **Auto-Pull on Switch / List**: Opening `@`, switching accounts, or listing profiles automatically checks the cloud vault and pulls down new accounts contributed by teammates.
+- **Background Daemon**: Run `ag-auth db daemon` for continuous timed polling in tmux or background tasks.
+
+---
+
 ### Team Sync Commands
 
 | Command | Action |
 | :--- | :--- |
 | `ag-auth db setup [url] [key]` | Connects Neon/Postgres, Supabase, or shared folder (interactive wizard if no URL passed) |
+| `ag-auth db auto-sync [on\|off]` | Check or toggle continuous automatic synchronization |
+| `ag-auth db daemon [seconds]` | Run continuous background polling auto-sync daemon (default interval: 300s) |
 | `ag-auth db sync` | **Two-way sync**: Pushes your local accounts and pulls new team accounts in one command |
 | `ag-auth db push` | Encrypts and uploads all local profiles to the remote database |
 | `ag-auth db pull` | Downloads and decrypts all team profiles into your local vault |

@@ -310,6 +310,7 @@ def cli_db_setup(vault_dir, target_url=None, passphrase_arg=None):
 
         passphrase = passphrase_arg or 'antigravity-team-vault'
         config['passphrase'] = passphrase
+        config['auto_sync'] = True
 
         save_db_config(vault_dir, config)
         print(f"{GREEN}✔ Database configuration saved to {os.path.join(vault_dir, 'db_config.json')}{NC}")
@@ -320,6 +321,12 @@ def cli_db_setup(vault_dir, target_url=None, passphrase_arg=None):
         except Exception as e:
             print(f"{RED}Connection test failed:{NC} {e}")
             return
+
+        print(f"\n{BOLD}{CYAN}=== Starting Initial Auto-Synchronization ==={NC}")
+        cli_db_sync(vault_dir)
+        print(f"\n{GREEN}✔ Auto-sync is now ACTIVE for this vault!{NC}")
+        print(f"  {DIM}• Local sessions will automatically push to team vault on save.{NC}")
+        print(f"  {DIM}• New team accounts will automatically pull when you switch or list.{NC}")
         return
 
     print(f"{BOLD}{MAGENTA}======================================================{NC}")
@@ -357,6 +364,7 @@ def cli_db_setup(vault_dir, target_url=None, passphrase_arg=None):
     print()
     passphrase = input("Enter Team Encryption Passphrase (default: antigravity-team-vault): ").strip() or "antigravity-team-vault"
     config['passphrase'] = passphrase
+    config['auto_sync'] = True
 
     save_db_config(vault_dir, config)
     print(f"\n{GREEN}✔ Database configuration saved to {os.path.join(vault_dir, 'db_config.json')} (chmod 600){NC}")
@@ -374,12 +382,13 @@ def cli_db_setup(vault_dir, target_url=None, passphrase_arg=None):
         print(f"{RED}Connection test failed:{NC} {e}")
         return
 
-    push_now = input("\nWould you like to push your existing local accounts to the team vault now? [Y/n]: ").strip().lower()
-    if push_now in ('', 'y', 'yes'):
-        cli_db_push(vault_dir)
+    print(f"\n{BOLD}{CYAN}=== Starting Initial Auto-Synchronization ==={NC}")
+    cli_db_sync(vault_dir)
 
-    print(f"\n{GREEN}✔ Setup complete!{NC}")
-    print(f"Run '{BOLD}ag-auth db sync{NC}' anytime to sync accounts with your team.")
+    print(f"\n{GREEN}✔ Setup complete! Auto-sync is now ACTIVE for this vault.{NC}")
+    print(f"  {DIM}• Local sessions will automatically push to team vault on save.{NC}")
+    print(f"  {DIM}• New team accounts will automatically pull when you switch or list.{NC}")
+    print(f"Run '{BOLD}ag-auth db sync{NC}' anytime to force a full manual sync.")
 
 def cli_db_status(vault_dir):
     config = get_db_config(vault_dir)
@@ -408,6 +417,9 @@ def cli_db_status(vault_dir):
     if config.get('table'):
         print(f"Table:     {config.get('table')}")
     print(f"Security:  {GREEN}AES-256 Zero-Knowledge Client-Side Encryption{NC}")
+    auto_sync = config.get('auto_sync', True)
+    auto_str = f"{GREEN}Active (Auto-pushes on save, auto-pulls on switch/list){NC}" if auto_sync else f"{YELLOW}Disabled{NC}"
+    print(f"Auto-Sync: {auto_str}")
 
     print(f"\n{CYAN}Testing remote connection...{NC}")
     try:
@@ -558,6 +570,86 @@ def cli_db_disconnect(vault_dir):
         print("Your local vaulted profiles remain safe and intact.")
     else:
         print(f"{YELLOW}No remote database was connected.{NC}")
+
+def cli_db_autosync(vault_dir, mode='status'):
+    config = get_db_config(vault_dir)
+    if not config:
+        print(f"{RED}Error:{NC} No database connected. Run '{BOLD}ag-auth db setup{NC}' first.")
+        return
+    cur_state = config.get('auto_sync', True)
+    if mode in ('on', 'enable', 'true'):
+        config['auto_sync'] = True
+        save_db_config(vault_dir, config)
+        print(f"{GREEN}✔ Auto-sync enabled.{NC} Accounts will sync with cloud automatically.")
+    elif mode in ('off', 'disable', 'false'):
+        config['auto_sync'] = False
+        save_db_config(vault_dir, config)
+        print(f"{YELLOW}✔ Auto-sync disabled.{NC} Use '{BOLD}ag-auth db sync{NC}' for manual synchronization.")
+    else:
+        state_str = f"{GREEN}Enabled (Active){NC}" if cur_state else f"{YELLOW}Disabled{NC}"
+        print(f"Database Auto-Sync: {state_str}")
+        print("  • Automatically pushes local accounts to cloud on 'ag-auth save'")
+        print("  • Automatically pulls new team accounts on switch or list")
+        print("\nTo toggle setting:")
+        print("  ag-auth db auto-sync on   # Enable continuous auto-sync")
+        print("  ag-auth db auto-sync off  # Disable (manual 'ag-auth db sync' only)")
+
+def cli_db_auto_pull(vault_dir, silent=True):
+    config = get_db_config(vault_dir)
+    if not config or config.get('auto_sync', True) is False:
+        return
+    stamp_file = os.path.join(vault_dir, '.last_auto_pull')
+    now = time.time()
+    if os.path.exists(stamp_file):
+        try:
+            mtime = os.path.getmtime(stamp_file)
+            if now - mtime < 300: # 5 min cooldown throttle
+                return
+        except Exception:
+            pass
+    try:
+        with open(stamp_file, 'w') as f:
+            f.write(str(int(now)))
+    except Exception:
+        pass
+
+    try:
+        rows = db_api_fetch(config)
+        passphrase = config.get('passphrase')
+        if not passphrase or not rows:
+            return
+        profiles_dir = os.path.join(vault_dir, 'profiles')
+        os.makedirs(profiles_dir, exist_ok=True)
+        new_cnt = 0
+        for r in rows:
+            email = r.get('email')
+            enc_payload = r.get('enc_payload')
+            if not email or not enc_payload:
+                continue
+            target_dir = os.path.join(profiles_dir, email)
+            token_p = os.path.join(target_dir, 'antigravity-oauth-token')
+            if not os.path.exists(token_p):
+                try:
+                    dec_json = decrypt_str(enc_payload, passphrase)
+                    data = json.loads(dec_json)
+                    os.makedirs(target_dir, exist_ok=True)
+                    if sys.platform != 'win32':
+                        try: os.chmod(target_dir, 0o700)
+                        except Exception: pass
+                    for fn, content in data.get('files', {}).items():
+                        fp = os.path.join(target_dir, fn)
+                        with open(fp, 'w') as f:
+                            f.write(content)
+                        if sys.platform != 'win32':
+                            try: os.chmod(fp, 0o600)
+                            except Exception: pass
+                    new_cnt += 1
+                except Exception:
+                    pass
+        if new_cnt > 0 and not silent:
+            sys.stderr.write(f"\033[0;36m☁ Auto-synced {new_cnt} new team profile(s) from database.\033[0m\n")
+    except Exception:
+        pass
 
 # --- Cross-Platform Keyring Helpers ---
 def keyring_read():
@@ -1212,6 +1304,12 @@ if __name__ == '__main__':
         cli_db_sync(v_dir)
     elif action == 'db_disconnect':
         cli_db_disconnect(v_dir)
+    elif action == 'db_autosync':
+        mode = sys.argv[4] if len(sys.argv) > 4 and sys.argv[4] != '' else 'status'
+        cli_db_autosync(v_dir, mode=mode)
+    elif action == 'auto_pull':
+        silent = not (len(sys.argv) > 4 and sys.argv[4] == 'verbose')
+        cli_db_auto_pull(v_dir, silent=silent)
 PYEOF
 }
 
@@ -1336,6 +1434,10 @@ except Exception:
 }
 
 pick_profile_interactive() {
+    if [[ -f "${VAULT_DIR}/db_config.json" ]]; then
+        run_vault_python "auto_pull" "${VAULT_DIR}" "" >/dev/null 2>&1 || true
+    fi
+
     local active_email=""
     if [[ -f "${ACTIVE_TOKEN}" ]]; then
         active_email=$(get_token_email "${ACTIVE_TOKEN}")
@@ -1470,10 +1572,20 @@ EOF
     [[ -f "${profile_path}/ide_state.json" ]] && saved_surfaces="${saved_surfaces} + IDE"
     [[ -f "${profile_path}/app_state.json" ]] && saved_surfaces="${saved_surfaces} + 2.0 Desktop"
     echo -e "  Surfaces captured: ${GREEN}${saved_surfaces}${NC}"
+
+    if [[ -f "${VAULT_DIR}/db_config.json" ]]; then
+        echo -e "  ${CYAN}☁ Auto-syncing profile to team cloud vault...${NC}"
+        if run_vault_python "db_push" "${VAULT_DIR}" "" >/dev/null 2>&1; then
+            echo -e "  ${GREEN}✔ Profile synced to team database!${NC}"
+        fi
+    fi
 }
 
 cmd_list() {
     ensure_vault_dirs
+    if [[ -f "${VAULT_DIR}/db_config.json" ]]; then
+        run_vault_python "auto_pull" "${VAULT_DIR}" "" >/dev/null 2>&1 || true
+    fi
     local refresh="${1:-false}"
     local active_email=""
     if [[ -f "${ACTIVE_TOKEN}" ]]; then
@@ -1653,11 +1765,25 @@ cmd_db() {
         sync)
             run_vault_python "db_sync" "${VAULT_DIR}" ""
             ;;
+        auto-sync|autosync)
+            run_vault_python "db_autosync" "${VAULT_DIR}" "" "${2:-status}"
+            ;;
+        daemon)
+            local interval="${2:-300}"
+            echo -e "${BOLD}${CYAN}=== Antigravity Team Vault Auto-Sync Daemon ===${NC}"
+            echo -e "Polling and synchronizing with database every ${BOLD}${interval}${NC} seconds."
+            echo -e "Press Ctrl+C to stop.\n"
+            while true; do
+                echo -e "[$(date '+%Y-%m-%d %H:%M:%S')] Auto-syncing accounts..."
+                run_vault_python "db_sync" "${VAULT_DIR}" "" || true
+                sleep "${interval}"
+            done
+            ;;
         disconnect|unlink)
             run_vault_python "db_disconnect" "${VAULT_DIR}" ""
             ;;
         *)
-            echo "Usage: ag-auth db [setup [url] [passphrase]|status|push|pull|sync|disconnect]"
+            echo "Usage: ag-auth db [setup [url] [passphrase]|status|push|pull|sync|auto-sync [on|off]|daemon|disconnect]"
             exit 1
             ;;
     esac
@@ -1668,6 +1794,9 @@ cmd_db() {
 # ------------------------------------------------------------------------------
 cmd_profiles() {
     ensure_vault_dirs
+    if [[ -f "${VAULT_DIR}/db_config.json" ]]; then
+        run_vault_python "auto_pull" "${VAULT_DIR}" "" >/dev/null 2>&1 || true
+    fi
     if [[ -d "${PROFILES_DIR}" ]]; then
         for d in "${PROFILES_DIR}"/*; do
             if [[ -d "$d" && -f "$d/antigravity-oauth-token" ]]; then
@@ -1695,7 +1824,7 @@ _ag_auth_completions() {
     local commands="switch quota list current save detach delete db completion version help"
     local flags="--refresh -r --force -f --surface -s --help -h --version -v"
     local surfaces="all cli ide app"
-    local db_cmds="setup status push pull sync disconnect"
+    local db_cmds="setup status push pull sync auto-sync daemon disconnect"
 
     if [[ ${COMP_CWORD} -eq 1 ]]; then
         if [[ "$1" == "@" ]]; then
@@ -1770,6 +1899,8 @@ _ag_auth() {
         'push:Encrypt and push local profiles to team vault'
         'pull:Pull and decrypt team profiles into local vault'
         'sync:Two-way synchronization (push local + pull remote)'
+        'auto-sync:Check or toggle continuous automatic sync'
+        'daemon:Run persistent background polling sync daemon'
         'disconnect:Safely unlink remote database'
     )
 
@@ -1831,7 +1962,7 @@ complete -c ag-auth -n "not __fish_seen_subcommand_from $commands" -a "db" -d "C
 complete -c ag-auth -n "not __fish_seen_subcommand_from $commands" -a "completion" -d "Shell completion generator"
 
 complete -c ag-auth -n "__fish_seen_subcommand_from switch quota delete" -a "(ag-auth _profiles 2>/dev/null)"
-complete -c ag-auth -n "__fish_seen_subcommand_from db" -a "setup status push pull sync disconnect"
+complete -c ag-auth -n "__fish_seen_subcommand_from db" -a "setup status push pull sync auto-sync daemon disconnect"
 complete -c @ -a "(ag-auth _profiles 2>/dev/null)"
 EOF
             ;;
@@ -1840,7 +1971,7 @@ EOF
 Register-ArgumentCompleter -Native -CommandName 'ag-auth', '@' -ScriptBlock {
     param($wordToComplete, $commandAst, $cursorPosition)
     $commands = @('switch', 'quota', 'list', 'current', 'save', 'detach', 'delete', 'db', 'completion', 'version', 'help')
-    $db_cmds = @('setup', 'status', 'push', 'pull', 'sync', 'disconnect')
+    $db_cmds = @('setup', 'status', 'push', 'pull', 'sync', 'auto-sync', 'daemon', 'disconnect')
     $profiles = @(ag-auth _profiles 2>$null)
     $elements = $commandAst.Elements
 
@@ -2101,10 +2232,12 @@ case "${1:-}" in
         echo ""
         echo -e "${BOLD}Team Vault & Cloud Database:${NC}"
         echo "  ag-auth db setup [url] [key]      Connect database (PostgreSQL / Neon, Supabase, Folder)"
-        echo "  ag-auth db status                 Check connection health & count of remote team accounts"
+        echo "  ag-auth db status                 Check connection health, auto-sync status & profile count"
+        echo "  ag-auth db sync                   Two-way sync (push local accounts + pull team accounts)"
         echo "  ag-auth db push                   Encrypt and upload local accounts to team database"
         echo "  ag-auth db pull                   Download and decrypt team accounts into local vault"
-        echo "  ag-auth db sync                   Two-way sync (push local accounts + pull team accounts)"
+        echo "  ag-auth db auto-sync [on|off]     Check or toggle automatic background synchronization"
+        echo "  ag-auth db daemon [seconds]       Run persistent background auto-sync polling daemon"
         echo "  ag-auth db disconnect             Unlink remote database (local accounts are kept intact)"
         echo ""
         echo -e "${BOLD}Shell Autocompletion:${NC}"
