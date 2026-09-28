@@ -29,11 +29,18 @@ echo "========================================================"
 echo "1. Installing to hidden directory: ${HIDDEN_DIR}..."
 mkdir -p "${HIDDEN_DIR}/bin"
 cp -rf "${SCRIPT_DIR}/bin/"* "${HIDDEN_DIR}/bin/"
+[[ -d "${SCRIPT_DIR}/src" ]] && cp -rf "${SCRIPT_DIR}/src" "${HIDDEN_DIR}/"
 [[ -f "${SCRIPT_DIR}/package.json" ]] && cp -f "${SCRIPT_DIR}/package.json" "${HIDDEN_DIR}/"
+[[ -f "${SCRIPT_DIR}/README.md" ]] && cp -f "${SCRIPT_DIR}/README.md" "${HIDDEN_DIR}/"
 [[ -f "${SCRIPT_DIR}/uninstall.sh" ]] && cp -f "${SCRIPT_DIR}/uninstall.sh" "${HIDDEN_DIR}/"
-chmod +x "${HIDDEN_DIR}/bin/ag-auth"
-[[ -f "${HIDDEN_DIR}/bin/cli.js" ]] && chmod +x "${HIDDEN_DIR}/bin/cli.js"
+chmod +x "${HIDDEN_DIR}/bin/ag-auth" "${HIDDEN_DIR}/bin/ag-auth.js" "${HIDDEN_DIR}/bin/cli.js" 2>/dev/null || true
 [[ -f "${HIDDEN_DIR}/uninstall.sh" ]] && chmod +x "${HIDDEN_DIR}/uninstall.sh"
+
+if [[ -d "${SCRIPT_DIR}/node_modules" ]]; then
+    cp -rf "${SCRIPT_DIR}/node_modules" "${HIDDEN_DIR}/"
+elif command -v npm >/dev/null 2>&1; then
+    (cd "${HIDDEN_DIR}" && npm install --omit=dev --silent >/dev/null 2>&1 || true)
+fi
 
 echo "2. Linking binaries to ${TARGET_DIR}..."
 mkdir -p "${TARGET_DIR}"

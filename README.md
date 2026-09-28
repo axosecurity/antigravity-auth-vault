@@ -74,24 +74,31 @@ Seamlessly switch between multiple Google accounts on **macOS**, **Linux**, and 
 
 ## 🚀 Installation
 
-### 1. Instant 1-Line Installation via NPX (Recommended — Universal for macOS, Linux, Windows)
+### 1. Instant 1-Line Installation via GitHub NPX (Recommended — Universal for macOS, Linux, Windows)
 
-The easiest way to install. Simply run this in your terminal or Command Prompt:
+No publishing to NPM registry required. 100% cost-free, open-source, and installs directly from GitHub with zero friction:
 
 ```bash
-npx antigravity-auth-vault
+npx github:axosecurity/antigravity-auth-vault
 ```
 
-The universal NPX installer automatically:
-1. Installs the program into a dedicated, hidden directory: `~/.antigravity-auth-vault` (Windows: `%USERPROFILE%\.antigravity-auth-vault`) following industry open-source standards.
+The universal installer automatically:
+1. Installs the program into an industry-standard dedicated hidden directory: `~/.antigravity-auth-vault` (Windows: `%USERPROFILE%\.antigravity-auth-vault`).
 2. Links `ag-auth` and the instant `@` shortcut to your user binary path (`~/.local/bin` or `~/bin`).
 3. Verifies and configures `PATH` in your shell startup files (`~/.zshrc`, `~/.bashrc`, or Windows User Environment).
 4. Automatically installs **tab autocompletion** for your active shell (Bash, Zsh, Fish, or PowerShell).
 5. Tests and displays your current active Antigravity session and AI quota.
 
+### 2. Global Installation via GitHub NPM
+
+If you prefer a global NPM install:
+```bash
+npm install -g github:axosecurity/antigravity-auth-vault
+```
+
 ---
 
-### 2. Native Shell Scripts
+### 3. Native Shell Scripts (Git Clone)
 
 #### macOS & Linux
 ```bash
@@ -111,24 +118,24 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 
 ## 🗑️ Clean Deletion & Uninstallation
 
-You can cleanly remove this program from your computer at any time.
+You can cleanly and completely remove this program from your computer at any time.
 
 ### From the CLI
 ```bash
 ag-auth uninstall
 ```
 
-### Or via NPX
+### Or via GitHub NPX
 ```bash
-npx antigravity-auth-vault uninstall
+npx github:axosecurity/antigravity-auth-vault uninstall
 ```
 
-### Optional: Wipe Vaulted Tokens as Well
+### Complete Purge (Wipe Stored Credentials as Well)
 By default, the uninstaller preserves your vaulted account profiles in `~/.gemini/auth_vault` so you never accidentally lose your tokens. If you wish to perform a complete wipe of all saved credentials and database keys:
 ```bash
 ag-auth uninstall --purge
 # Or
-npx antigravity-auth-vault uninstall --purge
+npx github:axosecurity/antigravity-auth-vault uninstall --purge
 ```
 
 The uninstaller cleanly deletes:

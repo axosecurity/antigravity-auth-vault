@@ -22,9 +22,27 @@ if (-not (Test-Path $HiddenBin)) {
     New-Item -ItemType Directory -Path $HiddenBin -Force | Out-Null
 }
 Copy-Item (Join-Path $BinSource "*") $HiddenBin -Recurse -Force
+$SrcDir = Join-Path $ScriptDir "src"
+if (Test-Path $SrcDir) {
+    Copy-Item $SrcDir $HiddenDir -Recurse -Force
+}
+$pkgJson = Join-Path $ScriptDir "package.json"
+if (Test-Path $pkgJson) {
+    Copy-Item $pkgJson $HiddenDir -Force
+}
+$readme = Join-Path $ScriptDir "README.md"
+if (Test-Path $readme) {
+    Copy-Item $readme $HiddenDir -Force
+}
 $uninst = Join-Path $ScriptDir "uninstall.ps1"
 if (Test-Path $uninst) {
     Copy-Item $uninst $HiddenDir -Force
+}
+$nodeModules = Join-Path $ScriptDir "node_modules"
+if (Test-Path $nodeModules) {
+    Copy-Item $nodeModules $HiddenDir -Recurse -Force
+} elseif (Get-Command npm -ErrorAction SilentlyContinue) {
+    Start-Process npm -ArgumentList "install","--omit=dev","--silent" -WorkingDirectory $HiddenDir -NoNewWindow -Wait
 }
 
 # 2. Target user directory for binaries
