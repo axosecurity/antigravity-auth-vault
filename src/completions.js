@@ -95,7 +95,7 @@ function getZshCompletionScript() {
     '',
     '    local -a db_cmds',
     '    db_cmds=(',
-    '        \'setup:Connect Supabase, shared folder, or REST database\'',
+    '        \'setup:Connect PostgreSQL / Neon, Supabase, or shared folder\'',
     '        \'status:Check connection health and remote profile count\'',
     '        \'push:Encrypt and push local profiles to team vault\'',
     '        \'pull:Pull and decrypt team profiles into local vault\'',

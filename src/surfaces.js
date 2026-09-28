@@ -80,9 +80,9 @@ function writeSurfaceState(dbPath, stateDict) {
         sql += `DELETE FROM ItemTable WHERE key = '${k}';\n`;
       }
     }
-    sql += 'COMMIT;';
-    execSync(`sqlite3 "${dbPath}" "${sql}"`, { stdio: 'ignore' });
-    return true;
+    sql += 'COMMIT;\n';
+    const res = spawnSync('sqlite3', [dbPath], { input: sql, encoding: 'utf8', stdio: ['pipe', 'ignore', 'ignore'] });
+    return res.status === 0;
   } catch (_) {}
 
   return false;

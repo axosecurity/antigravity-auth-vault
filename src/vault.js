@@ -471,15 +471,22 @@ async function pickInteractive() {
     render();
 
     function onData(key) {
-      if (key === '\u001b[A') { // UP
+      if (key === '\u001b[A' || key === '\u001bOA' || key === 'k') { // UP
         selected = (selected - 1 + items.length) % items.length;
         render();
-      } else if (key === '\u001b[B') { // DOWN
+      } else if (key === '\u001b[B' || key === '\u001bOB' || key === 'j') { // DOWN
         selected = (selected + 1) % items.length;
         render();
       } else if (key === '\r' || key === '\n') { // ENTER
         cleanup();
         resolve(items[selected].name);
+      } else if (key >= '1' && key <= '9') {
+        const num = parseInt(key, 10);
+        if (num >= 1 && num <= items.length) {
+          selected = num - 1;
+          cleanup();
+          resolve(items[selected].name);
+        }
       } else if (key === '\u0003' || key.toLowerCase() === 'q') { // Ctrl+C or q
         cleanup();
         resolve(null);

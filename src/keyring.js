@@ -30,7 +30,7 @@ function keyringRead() {
         $v = New-Object Windows.Security.Credentials.PasswordVault
         try {
           $c = $v.Retrieve('${SERVICE}', '${ACCOUNT}')
-          $c.FillPassword()
+          $c.RetrievePassword()
           Write-Output $c.Password
         } catch {}
       `;

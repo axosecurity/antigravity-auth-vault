@@ -113,7 +113,7 @@ async function refreshAccessToken(refreshToken) {
     grant_type: 'refresh_token'
   };
   const res = await postJson(TOKEN_URL, body);
-  return res.access_token || '';
+  return res || {};
 }
 
 function formatResetCountdown(targetDateStr) {
@@ -156,29 +156,39 @@ async function getProfileQuota(profileDir, force = false) {
     return null;
   }
 
-  let accessToken = tokenData.access_token;
-  const refreshToken = tokenData.refresh_token;
+  const tokObj = tokenData.token || tokenData;
+  let accessToken = tokObj.access_token || tokenData.access_token;
+  const refreshToken = tokObj.refresh_token || tokenData.refresh_token;
 
   let summary = null;
-  try {
-    summary = await postJson(QUOTA_URL, { project: '' }, {
-      'Authorization': `Bearer ${accessToken}`,
-      'User-Agent': 'antigravity/1.0'
-    });
-  } catch (err) {
-    if (refreshToken) {
-      try {
-        accessToken = await refreshAccessToken(refreshToken);
-        if (accessToken) {
+  if (accessToken) {
+    try {
+      summary = await postJson(QUOTA_URL, { project: '' }, {
+        'Authorization': `Bearer ${accessToken}`,
+        'User-Agent': 'antigravity/1.0'
+      });
+    } catch (_) {}
+  }
+
+  if (!summary && refreshToken) {
+    try {
+      const refreshed = await refreshAccessToken(refreshToken);
+      accessToken = refreshed.access_token || refreshed;
+      if (accessToken) {
+        if (tokenData.token) {
+          tokenData.token.access_token = accessToken;
+          if (refreshed.id_token) tokenData.id_token = refreshed.id_token;
+        } else {
           tokenData.access_token = accessToken;
-          fs.writeFileSync(tokenFile, JSON.stringify(tokenData, null, 2), 'utf8');
-          summary = await postJson(QUOTA_URL, { project: '' }, {
-            'Authorization': `Bearer ${accessToken}`,
-            'User-Agent': 'antigravity/1.0'
-          });
+          if (refreshed.id_token) tokenData.id_token = refreshed.id_token;
         }
-      } catch (_) {}
-    }
+        fs.writeFileSync(tokenFile, JSON.stringify(tokenData, null, 2), 'utf8');
+        summary = await postJson(QUOTA_URL, { project: '' }, {
+          'Authorization': `Bearer ${accessToken}`,
+          'User-Agent': 'antigravity/1.0'
+        });
+      }
+    } catch (_) {}
   }
 
   if (!summary) return null;
@@ -189,25 +199,49 @@ async function getProfileQuota(profileDir, force = false) {
     claude: {}
   };
 
-  const buckets = summary.userQuotaBuckets || [];
-  for (const b of buckets) {
-    const name = b.name || '';
-    const fraction = b.fractionalRemaining || 0;
-    const resetsAt = b.resetsAt || '';
-    const pct = Math.round(fraction * 1000) / 10;
-    const resetsIn = formatResetCountdown(resetsAt);
+  if (Array.isArray(summary.groups)) {
+    for (const g of summary.groups) {
+      const gName = (g.displayName || '').toLowerCase();
+      const isGemini = gName.includes('gemini');
+      const isClaude = gName.includes('claude') || gName.includes('gpt');
+      const targetGroup = isGemini ? result.gemini : (isClaude ? result.claude : null);
 
-    if (name.includes('gemini') || name.includes('default')) {
-      if (name.includes('5h') || name.includes('five_hour')) {
-        result.gemini['5h'] = { pct, resets_in: resetsIn };
-      } else {
-        result.gemini['weekly'] = { pct, resets_in: resetsIn };
+      if (targetGroup && Array.isArray(g.buckets)) {
+        for (const b of g.buckets) {
+          const win = (b.window || b.bucketId || '').toLowerCase();
+          const fraction = b.remainingFraction !== undefined ? b.remainingFraction : (b.fractionalRemaining || 0);
+          const resetsAt = b.resetTime || b.resetsAt || '';
+          const pct = Math.round(fraction * 1000) / 10;
+          const resetsIn = formatResetCountdown(resetsAt);
+
+          if (win.includes('5h') || win.includes('5')) {
+            targetGroup['5h'] = { pct, resets_in: resetsIn };
+          } else {
+            targetGroup['weekly'] = { pct, resets_in: resetsIn };
+          }
+        }
       }
-    } else if (name.includes('claude') || name.includes('gpt')) {
-      if (name.includes('5h') || name.includes('five_hour')) {
-        result.claude['5h'] = { pct, resets_in: resetsIn };
-      } else {
-        result.claude['weekly'] = { pct, resets_in: resetsIn };
+    }
+  } else if (Array.isArray(summary.userQuotaBuckets)) {
+    for (const b of summary.userQuotaBuckets) {
+      const name = (b.name || '').toLowerCase();
+      const fraction = b.fractionalRemaining !== undefined ? b.fractionalRemaining : 0;
+      const resetsAt = b.resetsAt || '';
+      const pct = Math.round(fraction * 1000) / 10;
+      const resetsIn = formatResetCountdown(resetsAt);
+
+      if (name.includes('gemini') || name.includes('default')) {
+        if (name.includes('5h') || name.includes('five_hour')) {
+          result.gemini['5h'] = { pct, resets_in: resetsIn };
+        } else {
+          result.gemini['weekly'] = { pct, resets_in: resetsIn };
+        }
+      } else if (name.includes('claude') || name.includes('gpt')) {
+        if (name.includes('5h') || name.includes('five_hour')) {
+          result.claude['5h'] = { pct, resets_in: resetsIn };
+        } else {
+          result.claude['weekly'] = { pct, resets_in: resetsIn };
+        }
       }
     }
   }
