@@ -1,14 +1,16 @@
 # Universal Antigravity Auth Vault & Multi-Account Switcher (`ag-auth`)
 
-A fast, cross-platform, zero-dependency session vault, multi-account switcher, and **real-time AI quota monitor** for **Google Antigravity CLI (`agy`)**, **Antigravity IDE**, and **Antigravity 2.0 Desktop**.
+A fast, cross-platform, zero-dependency session vault, multi-account switcher, **cloud team database synchronizer**, and **real-time AI quota monitor** for **Google Antigravity CLI (`agy`)**, **Antigravity IDE**, and **Antigravity 2.0 Desktop**.
 
-Seamlessly switch between multiple Google accounts on **macOS**, **Linux**, and **Windows**, monitor AI token limits (Gemini and Claude models) across all accounts at a glance, and enjoy **tab autocompletion** across your favorite shells.
+Seamlessly switch between multiple Google accounts on **macOS**, **Linux**, and **Windows**, monitor AI token limits (Gemini and Claude models) across all accounts, share pooled quota across team members via a **friction-free encrypted remote database**, and enjoy **tab autocompletion** across your favorite shells.
 
 ---
 
 ## ⚡ Key Features
 
 - 🌐 **Universal Cross-Platform Core**: 100% compatible with **macOS**, all **Linux** distributions (Ubuntu, Debian, Fedora, Arch, Alpine, etc.), and **Windows** (PowerShell, Command Prompt, Git Bash, and WSL).
+- ☁️ **Friction-Free Team Database & Cloud Sync**: Connect **Supabase** in 30 seconds, connect a **Shared Cloud Drive** (Dropbox, Google Drive, iCloud, NFS), or connect any **REST API** to pool and share accounts across your team.
+- 🔐 **Zero-Knowledge Client-Side Encryption (E2EE)**: Sensitive Google OAuth tokens and runtime state are encrypted locally via **military-grade AES-256-CBC (PBKDF2 with 100,000 iterations)** before leaving your laptop. The remote database stores only ciphertext.
 - 🧩 **Multi-Surface Synchronization**: Simultaneously switches and manages authentication for:
   - **Antigravity CLI (`agy`)** (`~/.gemini/antigravity-cli/`)
   - **Antigravity IDE** (`~/Library/Application Support/Antigravity IDE/` or `~/.config/Antigravity IDE/` or `%APPDATA%\Antigravity IDE\`)
@@ -43,8 +45,8 @@ Seamlessly switch between multiple Google accounts on **macOS**, **Linux**, and 
                                            |
                                            v
 +-----------------------------------------------------------------------------------+
-|                              Protected Profile Vault                              |
-|                               (~/.gemini/auth_vault/)                             |
+|                              Protected Local Vault                                |
+|                             (~/.gemini/auth_vault/)                               |
 |                                                                                   |
 |   ├── profiles/first_account@gmail.com/                                           |
 |   │   ├── antigravity-oauth-token       (CLI session token)                       |
@@ -53,8 +55,18 @@ Seamlessly switch between multiple Google accounts on **macOS**, **Linux**, and 
 |   │   ├── oauth_creds.json              (Supporting OAuth credentials)            |
 |   │   ├── profile.json                  (Metadata & saved timestamp)              |
 |   │   └── quota_cache.json              (Cached AI model quota response)          |
-|   └── profiles/second_account@gmail.com/                                          |
-|       ├── ...                                                                     |
+|   └── db_config.json                    (Remote database credentials & settings)  |
++------------------------------------------+----------------------------------------+
+                                           |
+                       [ ag-auth db push / pull / sync ]
+                       (Zero-Knowledge AES-256 Encrypted)
+                                           |
+                                           v
++-----------------------------------------------------------------------------------+
+|                          Remote Team Vault / Cloud DB                             |
+|              (Supabase PostgreSQL / Shared Cloud Drive / REST API)                |
+|                                                                                   |
+|   Row: { email, enc_payload (AES-256), updated_by, last_synced_at }               |
 +-----------------------------------------------------------------------------------+
 ```
 
@@ -95,6 +107,81 @@ The Windows installer automatically:
 
 ---
 
+## ☁️ Friction-Free Remote Database & Team Vault Sharing
+
+Why stay limited by individual Google account quota when your entire team can pool 10+ accounts together?
+
+If 10 developers pool their accounts into a shared vault, the team gets access to **10 independent quotas**. When developer A runs out of quota on a heavy task, they simply press `@` and switch to an account with 100% available limits contributed by developer B!
+
+### 🔐 Zero-Knowledge Client-Side Encryption
+- Your Google tokens are **never sent in plaintext**.
+- Everything is encrypted on your machine using **AES-256-CBC (PBKDF2 with 100,000 iterations)** with a shared **Team Passphrase**.
+- Even if your database is publicly readable, without the passphrase the ciphertext cannot be decrypted.
+
+---
+
+### Provider 1: Supabase (Recommended — Free & 30-Second Setup)
+
+Supabase gives you a free hosted PostgreSQL database with a built-in REST API that `ag-auth` speaks natively without any database driver dependencies.
+
+#### Step 1: Create a Free Supabase Project
+1. Go to [supabase.com](https://supabase.com) and create a free project.
+2. In the Supabase Dashboard, go to **Project Settings ➔ API**. Copy your:
+   - **Project URL** (e.g., `https://xyzcompany.supabase.co`)
+   - **anon public API Key** (or service_role key)
+
+#### Step 2: Create the Table in Supabase
+In your Supabase Dashboard, go to **SQL Editor**, paste and run this snippet:
+```sql
+CREATE TABLE IF NOT EXISTS antigravity_vault (
+    email TEXT PRIMARY KEY,
+    enc_payload TEXT NOT NULL,
+    updated_by TEXT NOT NULL,
+    last_synced_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Allow anonymous team sync (ciphertext is already client-side AES-256 encrypted):
+ALTER TABLE antigravity_vault ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow team sync" ON antigravity_vault FOR ALL USING (true) WITH CHECK (true);
+```
+
+#### Step 3: Run Guided Setup in Terminal
+```bash
+ag-auth db setup
+```
+Select **1 (Supabase)**, paste your URL, Key, and enter your team's encryption passphrase.
+`ag-auth` tests the connection and immediately offers to push your existing accounts!
+
+---
+
+### Provider 2: Shared Cloud Drive / Folder (Dropbox, Google Drive, iCloud, NFS)
+
+If your team already shares a folder in Google Drive, Dropbox, iCloud, or a local server share:
+1. Run:
+   ```bash
+   ag-auth db setup
+   ```
+2. Select **2 (Shared Folder)**.
+3. Enter the folder path (e.g. `~/Dropbox/TeamVault` or `/Volumes/TeamShare/Vault`).
+4. Enter your Team Encryption Passphrase.
+
+`ag-auth` stores each profile as an encrypted `.vault.enc` file in the folder. No cloud account or database required!
+
+---
+
+### Team Sync Commands
+
+| Command | Action |
+| :--- | :--- |
+| `ag-auth db sync` | **Two-way sync**: Pushes your local accounts and pulls new team accounts in one command |
+| `ag-auth db push` | Encrypts and uploads all local profiles to the remote database |
+| `ag-auth db pull` | Downloads and decrypts all team profiles into your local vault |
+| `ag-auth db status` | Tests database connection and displays total remote team accounts |
+| `ag-auth db setup` | Interactive wizard to connect Supabase, Drive, or Custom REST |
+| `ag-auth db disconnect` | Safely unlinks the database (local profiles are never deleted) |
+
+---
+
 ## ⌨️ Tab Autocompletion (Lazy Programmer Mode)
 
 Never type repetitive commands or account emails again.
@@ -128,10 +215,11 @@ Invoke-Expression (ag-auth completion powershell | Out-String)
 ```
 
 ### What You Can Auto-Complete:
-- `ag-auth <TAB>` ➔ Auto-completes subcommands: `switch`, `quota`, `list`, `current`, `save`, `detach`, `delete`, `completion`
-- `ag-auth switch <TAB>` ➔ Auto-completes all saved account emails!
-- `@ <TAB>` ➔ Auto-completes all saved account emails!
-- `ag-auth quota <TAB>` ➔ Auto-completes accounts and flags (`--refresh`)
+- `ag-auth <TAB>` ➔ Auto-completes subcommands: `switch`, `quota`, `list`, `current`, `save`, `detach`, `delete`, `db`, `completion`
+- `ag-auth switch <TAB>` ➔ **Auto-completes all saved account emails!**
+- `@ <TAB>` ➔ **Auto-completes all saved account emails!**
+- `ag-auth db <TAB>` ➔ Auto-completes database actions: `setup`, `status`, `push`, `pull`, `sync`, `disconnect`
+- `ag-auth quota <TAB>` ➔ Auto-completes account names and `--refresh`
 
 ---
 
@@ -147,7 +235,7 @@ Use the **`↑` and `↓` arrow keys** to highlight your desired account and pre
 ```text
 Select Universal Antigravity Account (↑/↓ arrow keys, Enter to switch, q to cancel):
   ▶ [1] sishihidul@gmail.com      [Gem: 100% | Cld: 100%] [CURRENT ACTIVE]
-    [2] kaziaremon@gmail.com      [Gem:  89% | Cld: 100%]
+    [2] kaziaremon@gmail.com      [Gem:  87% | Cld: 100%]
     [3] kulsumaakter722@gmail.com [Gem:  99% | Cld: 100%]
 ```
 
@@ -193,8 +281,8 @@ Output:
 
 Account: kaziaremon@gmail.com [CURRENT ACTIVE]
   • Gemini Models (Flash, Pro):
-      Weekly Limit:  [███████████░]  89.0% (resets in 3d 21h)
-      5-Hour Window: [███████████░]  93.3% (resets in 3h 19m)
+      Weekly Limit:  [███████████░]  87.4% (resets in 3d 21h)
+      5-Hour Window: [██████████░░]  83.7% (resets in 3h 19m)
   • Claude & GPT Models (Sonnet, Opus, GPT-OSS):
       Weekly Limit:  [████████████] 100.0%
       5-Hour Window: [████████████] 100.0%
@@ -226,7 +314,7 @@ Output:
 === Vaulted Antigravity Profiles & Quotas ===
 
 ▶ kaziaremon@gmail.com [CURRENT ACTIVE] (CLI, IDE, App)
-      Gemini:  [█████████░]  89.0% weekly (resets: 3d 21h) |  93.3% 5h
+      Gemini:  [█████████░]  87.4% weekly (resets: 3d 21h) |  83.7% 5h
       Claude:  [██████████] 100.0% weekly | 100.0% 5h
       Token Expiry: 2026-09-28 14:35:04 UTC
 
@@ -245,6 +333,11 @@ Output:
 | **Instant Switch** | `@` | Opens interactive arrow-key selector (`↑`/`↓` + Enter) |
 | **Direct Switch** | `@ <email>` | Swaps active session to the specified email across all surfaces |
 | **Surface Switch** | `ag-auth switch <email> -s <surface>` | Target specific runtime (`all`, `cli`, `ide`, `app`) |
+| **Two-Way DB Sync** | `ag-auth db sync` | Sync local vault with team cloud database |
+| **Push Accounts** | `ag-auth db push` | Encrypt & upload local accounts to team vault |
+| **Pull Accounts** | `ag-auth db pull` | Download & decrypt team accounts from team vault |
+| **Database Status**| `ag-auth db status` | Check connection health & count of team accounts |
+| **Database Setup** | `ag-auth db setup` | Interactive wizard to connect Supabase or Drive |
 | **AI Quotas** | `ag-auth quota [--refresh]` | Full quota dashboard with progress bars and reset countdowns |
 | **Check Active** | `ag-auth current` | Shows active account, runtime surface connections, and limits |
 | **Save Session** | `ag-auth save [name]` | Vaults current session (auto-captures CLI + IDE + 2.0) |
@@ -257,8 +350,8 @@ Output:
 
 ## 🔒 Security & Privacy
 
-- **100% Local Storage**: All tokens, credentials, and metadata remain strictly on your local machine in `~/.gemini/auth_vault/`.
-- **Restricted Permissions**: Directories are created with `0700` permissions and token files with `0600` permissions on POSIX systems.
+- **Zero-Knowledge Encryption**: When syncing with remote databases or shared drives, tokens are encrypted with client-side **AES-256-CBC (PBKDF2 with 100,000 iterations)** using your team passphrase.
+- **Local Storage Isolation**: Local files in `~/.gemini/auth_vault/` are stored strictly with POSIX `0700` directory and `0600` file permissions.
 - **Git Protection**: The repository `.gitignore` automatically blocks tokens, credentials, cache files, and private keys from ever being staged or committed.
 
 ---
