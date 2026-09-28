@@ -120,9 +120,27 @@ If 10 developers pool their accounts into a shared vault, the team gets access t
 
 ---
 
-### Provider 1: Supabase (Recommended — Free & 30-Second Setup)
+### Provider 1: PostgreSQL / Neon (Recommended — Instant 1-Line Setup)
 
-Supabase gives you a free hosted PostgreSQL database with a built-in REST API that `ag-auth` speaks natively without any database driver dependencies.
+Connect any PostgreSQL database directly, including serverless Postgres providers like [Neon](https://neon.tech), Supabase Postgres, AWS RDS, DigitalOcean, or self-hosted PostgreSQL:
+
+#### Quick 1-Line Connection
+```bash
+ag-auth db setup "postgresql://user:password@ep-xyz.neon.tech/neondb?sslmode=require"
+```
+*(Optionally provide your team encryption passphrase as the second argument, default: `antigravity-team-vault`)*
+
+`ag-auth` will automatically:
+1. Test your database connection.
+2. Auto-create the encrypted `antigravity_vault` table if it doesn't already exist.
+3. Securely store the configuration in `~/.gemini/auth_vault/db_config.json` (`chmod 600`).
+4. Mask connection passwords in status outputs to prevent accidental disclosure.
+
+---
+
+### Provider 2: Supabase (Free Hosted Postgres REST)
+
+Supabase provides a free hosted PostgreSQL database with a built-in REST API that `ag-auth` speaks natively over HTTP:
 
 #### Step 1: Create a Free Supabase Project
 1. Go to [supabase.com](https://supabase.com) and create a free project.
@@ -149,19 +167,18 @@ CREATE POLICY "Allow team sync" ON antigravity_vault FOR ALL USING (true) WITH C
 ```bash
 ag-auth db setup
 ```
-Select **1 (Supabase)**, paste your URL, Key, and enter your team's encryption passphrase.
-`ag-auth` tests the connection and immediately offers to push your existing accounts!
+Select **2 (Supabase)**, paste your URL, Key, and enter your team's encryption passphrase.
 
 ---
 
-### Provider 2: Shared Cloud Drive / Folder (Dropbox, Google Drive, iCloud, NFS)
+### Provider 3: Shared Cloud Drive / Folder (Dropbox, Google Drive, iCloud, NFS)
 
 If your team already shares a folder in Google Drive, Dropbox, iCloud, or a local server share:
 1. Run:
    ```bash
    ag-auth db setup
    ```
-2. Select **2 (Shared Folder)**.
+2. Select **3 (Shared Folder)**.
 3. Enter the folder path (e.g. `~/Dropbox/TeamVault` or `/Volumes/TeamShare/Vault`).
 4. Enter your Team Encryption Passphrase.
 
@@ -169,15 +186,21 @@ If your team already shares a folder in Google Drive, Dropbox, iCloud, or a loca
 
 ---
 
+### Provider 4: Custom HTTP REST API (Cloudflare Worker, Next.js, FastAPI)
+
+Point `ag-auth` to any internal team microservice or Cloudflare Worker that accepts JSON payloads with optional Bearer Token authentication.
+
+---
+
 ### Team Sync Commands
 
 | Command | Action |
 | :--- | :--- |
+| `ag-auth db setup [url] [key]` | Connects Neon/Postgres, Supabase, or shared folder (interactive wizard if no URL passed) |
 | `ag-auth db sync` | **Two-way sync**: Pushes your local accounts and pulls new team accounts in one command |
 | `ag-auth db push` | Encrypts and uploads all local profiles to the remote database |
 | `ag-auth db pull` | Downloads and decrypts all team profiles into your local vault |
-| `ag-auth db status` | Tests database connection and displays total remote team accounts |
-| `ag-auth db setup` | Interactive wizard to connect Supabase, Drive, or Custom REST |
+| `ag-auth db status` | Tests database connection, masks secrets, and displays total remote team accounts |
 | `ag-auth db disconnect` | Safely unlinks the database (local profiles are never deleted) |
 
 ---
