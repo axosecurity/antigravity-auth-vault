@@ -5,7 +5,17 @@
 # ==============================================================================
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd || echo "")"
+CLEANUP_TEMP=false
+
+if [[ -z "${SCRIPT_DIR}" || ! -f "${SCRIPT_DIR}/bin/ag-auth" ]]; then
+    TEMP_CLONE=$(mktemp -d 2>/dev/null || mktemp -d -t 'ag-auth')
+    echo "Fetching Antigravity Auth Vault from GitHub..."
+    git clone --depth 1 https://github.com/axosecurity/antigravity-auth-vault.git "${TEMP_CLONE}" >/dev/null 2>&1
+    SCRIPT_DIR="${TEMP_CLONE}"
+    CLEANUP_TEMP=true
+fi
+
 HIDDEN_DIR="${HOME}/.antigravity-auth-vault"
 BIN_SRC="${SCRIPT_DIR}/bin/ag-auth"
 TARGET_DIR="${HOME}/.local/bin"
@@ -61,6 +71,10 @@ fi
 # Automatically install tab completion for active shell
 echo ""
 "${TARGET_BIN}" completion install
+
+if [[ "${CLEANUP_TEMP}" == "true" && -n "${TEMP_CLONE:-}" && -d "${TEMP_CLONE:-}" ]]; then
+    rm -rf "${TEMP_CLONE}"
+fi
 
 echo ""
 "${TARGET_BIN}" current
