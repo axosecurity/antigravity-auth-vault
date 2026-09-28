@@ -1,25 +1,29 @@
-# Antigravity CLI Auth Vault & Session Switcher (`ag-auth`)
+# Universal Antigravity Auth Vault & Multi-Account Switcher (`ag-auth`)
 
-A fast, lightweight, zero-dependency session manager, multi-account switcher, and **real-time AI quota monitor** for **Google Antigravity CLI (`agy`)**.
+A fast, cross-platform, zero-dependency session vault, multi-account switcher, and **real-time AI quota monitor** for **Google Antigravity CLI (`agy`)**, **Antigravity IDE**, and **Antigravity 2.0 Desktop**.
 
-Seamlessly switch between multiple Google accounts on your Mac, monitor token limits (Gemini and Claude models) across all accounts at a glance, and never run blind into unexpected rate limits again.
+Seamlessly switch between multiple Google accounts on **macOS**, **Linux**, and **Windows**, monitor AI token limits (Gemini and Claude models) across all accounts at a glance, and enjoy **tab autocompletion** across your favorite shells.
 
 ---
 
 ## ⚡ Key Features
 
-- ⚡ **Instant Arrow-Key Switcher with Live Quota (`@` Shortcut)**: Simply type `@` and hit Enter. Use your `↑` / `↓` arrow keys to highlight any account and view real-time model quota percentages before pressing Enter.
+- 🌐 **Universal Cross-Platform Core**: 100% compatible with **macOS**, all **Linux** distributions (Ubuntu, Debian, Fedora, Arch, Alpine, etc.), and **Windows** (PowerShell, Command Prompt, Git Bash, and WSL).
+- 🧩 **Multi-Surface Synchronization**: Simultaneously switches and manages authentication for:
+  - **Antigravity CLI (`agy`)** (`~/.gemini/antigravity-cli/`)
+  - **Antigravity IDE** (`~/Library/Application Support/Antigravity IDE/` or `~/.config/Antigravity IDE/` or `%APPDATA%\Antigravity IDE\`)
+  - **Antigravity 2.0 Desktop** (`~/Library/Application Support/Antigravity/` or `~/.config/Antigravity/` or `%APPDATA%\Antigravity\`)
+- ⌨️ **Tab Autocompletion (Lazy Programmer Mode)**: Press `<TAB>` to auto-complete commands, flags, and dynamically discover vaulted account names/emails (`ag-auth switch <TAB>`, `@ <TAB>`). Supports **Bash**, **Zsh**, **Fish**, and **PowerShell**.
+- ⚡ **Instant Arrow-Key Switcher with Live Quota (`@` Shortcut)**: Type `@` and hit Enter. Use your `↑` / `↓` arrow keys to highlight any account and view real-time model quota percentages before pressing Enter.
 - 📊 **Real-Time AI Quota Monitoring**: Queries Google Cloud Code's administrative quota API to report exact weekly and 5-hour rolling limit percentages for:
   - **Gemini Models** (Flash, Pro)
   - **Claude & GPT Models** (Sonnet, Opus, GPT-OSS)
 - ⏳ **Intelligent Reset Timers**: Displays human-readable reset countdowns (e.g. `resets in 3d 8h` or `resets in 4h 46m`) so you know exactly when limits replenish.
 - 🔄 **Autonomous Token Refresh**: Automatically uses OAuth refresh tokens to keep expired sessions refreshed in the background for quota checks and immediate login readiness.
 - 🚀 **Sub-Millisecond Smart Caching**: Caches quota responses locally with a 3-minute TTL so navigation and switching remain blazing fast (<1ms).
-- 🔄 **Dual-Layer Synchronization**: Atomically updates both the filesystem (`~/.gemini/antigravity-cli/antigravity-oauth-token`) and the **macOS Keychain** (`service: "gemini"`, `account: "antigravity"`), guaranteeing `agy` immediately picks up the switched session.
-- 🔍 **Automatic Identity Detection**: Decodes Google identity JWT claims (`id_token`) to auto-detect emails.
-- 🛡️ **Secure POSIX Permissions**: Enforces user-only access (`chmod 600` on token and credential files, `chmod 700` on directories).
+- 🛡️ **Universal OS Keyring Adapter**: Automatically syncs sessions with macOS Apple Keychain (`security`), Linux Secret Service (`secret-tool`), and Windows Credential Manager.
 - 💾 **Auto-Preservation**: Automatically preserves the active session into the vault before switching, preventing accidental session loss.
-- 🧹 **Clean Detach Flow**: Stashes active credentials, stops background daemon processes (`agy remote-control stop`), and clears the active token and Keychain so you can authenticate a new account cleanly.
+- 🧹 **Clean Detach Flow**: Stashes active credentials, stops background daemon processes (`agy remote-control stop`), and clears active tokens across all surfaces so you can authenticate a new account cleanly.
 - 🖥️ **Interactive Menu**: Run `ag-auth` with no arguments for a guided terminal UI.
 
 ---
@@ -27,58 +31,107 @@ Seamlessly switch between multiple Google accounts on your Mac, monitor token li
 ## 🏗️ Architecture Blueprint
 
 ```text
-+-------------------------------------------------------------+
-|                   Active Antigravity Runtime                |
-|  • Filesystem: ~/.gemini/antigravity-cli/antigravity-oauth-token
-|  • macOS Keychain: service="gemini", account="antigravity"  |
-|  • Supporting: ~/.gemini/oauth_creds.json                   |
-+------------------------------+------------------------------+
-                               |
-              [ ag-auth switch / detach / save / quota ]
-                               |
-                               v
-+-------------------------------------------------------------+
-|                  Protected Profile Vault                    |
-|                   (~/.gemini/auth_vault/)                   |
-|                                                             |
-|   ├── profiles/first_account@gmail.com/                     |
-|   │   ├── antigravity-oauth-token                           |
-|   │   ├── oauth_creds.json                                  |
-|   │   ├── profile.json                                      |
-|   │   └── quota_cache.json                                  |
-|   └── profiles/second_account@gmail.com/                    |
-|       ├── antigravity-oauth-token                           |
-|       ├── oauth_creds.json                                  |
-|       ├── profile.json                                      |
-|       └── quota_cache.json                                  |
-+-------------------------------------------------------------+
++-----------------------------------------------------------------------------------+
+|                            Active Antigravity Runtimes                            |
+|                                                                                   |
+|  • CLI:      ~/.gemini/antigravity-cli/antigravity-oauth-token & OS Keyring        |
+|  • IDE:      Antigravity IDE/User/globalStorage/state.vscdb (SQLite ItemTable)    |
+|  • 2.0 App:  Antigravity/User/globalStorage/state.vscdb (SQLite ItemTable)        |
++------------------------------------------+----------------------------------------+
+                                           |
+                    [ ag-auth switch / detach / save / quota ]
+                                           |
+                                           v
++-----------------------------------------------------------------------------------+
+|                              Protected Profile Vault                              |
+|                               (~/.gemini/auth_vault/)                             |
+|                                                                                   |
+|   ├── profiles/first_account@gmail.com/                                           |
+|   │   ├── antigravity-oauth-token       (CLI session token)                       |
+|   │   ├── ide_state.json                (IDE session snapshot)                   |
+|   │   ├── app_state.json                (2.0 Desktop session snapshot)            |
+|   │   ├── oauth_creds.json              (Supporting OAuth credentials)            |
+|   │   ├── profile.json                  (Metadata & saved timestamp)              |
+|   │   └── quota_cache.json              (Cached AI model quota response)          |
+|   └── profiles/second_account@gmail.com/                                          |
+|       ├── ...                                                                     |
++-----------------------------------------------------------------------------------+
 ```
 
 ---
 
 ## 🚀 Installation
 
-### One-line Installation
+### macOS & Linux
+
+#### One-line Installation
 From this repository directory:
 ```bash
 chmod +x install.sh
 ./install.sh
 ```
 
-### Manual Installation
-```bash
-# 1. Copy binary to your user bin path
-mkdir -p ~/.local/bin
-cp bin/ag-auth ~/.local/bin/ag-auth
-chmod +x ~/.local/bin/ag-auth
+The installer automatically:
+1. Copies `ag-auth` to `~/.local/bin/ag-auth`
+2. Creates the instant `@` shortcut symlink
+3. Configures `PATH` in `~/.zshrc` / `~/.bashrc`
+4. Automatically installs **tab autocompletion** for your active shell
 
-# 2. Setup '@' shortcut symlink
-ln -sf ~/.local/bin/ag-auth ~/.local/bin/@
+---
 
-# 3. Add alias to ~/.zshrc (if not already present)
-echo 'alias @="ag-auth @"' >> ~/.zshrc
-export PATH="$HOME/.local/bin:$PATH"
+### Windows (PowerShell & Command Prompt)
+
+#### One-line Installation
+Run in PowerShell (as your standard user):
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+.\install.ps1
 ```
+
+The Windows installer automatically:
+1. Copies `ag-auth`, `ag-auth.cmd`, `ag-auth.ps1`, and `@.cmd` to `~/bin/`
+2. Configures your User `PATH` environment variable
+3. Registers `@` shortcut and tab autocompletion in your PowerShell `$PROFILE`
+
+---
+
+## ⌨️ Tab Autocompletion (Lazy Programmer Mode)
+
+Never type repetitive commands or account emails again.
+
+### Automatic Setup
+Run this once from your terminal:
+```bash
+ag-auth completion install
+```
+
+### Manual Shell Setup
+
+#### Zsh (`~/.zshrc`)
+```zsh
+eval "$(ag-auth completion zsh)"
+```
+
+#### Bash (`~/.bashrc`)
+```bash
+eval "$(ag-auth completion bash)"
+```
+
+#### Fish (`~/.config/fish/config.fish`)
+```fish
+ag-auth completion fish | source
+```
+
+#### PowerShell (`$PROFILE`)
+```powershell
+Invoke-Expression (ag-auth completion powershell | Out-String)
+```
+
+### What You Can Auto-Complete:
+- `ag-auth <TAB>` ➔ Auto-completes subcommands: `switch`, `quota`, `list`, `current`, `save`, `detach`, `delete`, `completion`
+- `ag-auth switch <TAB>` ➔ Auto-completes all saved account emails!
+- `@ <TAB>` ➔ Auto-completes all saved account emails!
+- `ag-auth quota <TAB>` ➔ Auto-completes accounts and flags (`--refresh`)
 
 ---
 
@@ -92,18 +145,42 @@ Simply type `@` and hit Enter in your terminal:
 Use the **`↑` and `↓` arrow keys** to highlight your desired account and press **`Enter`** (or press the corresponding number `1`, `2`...):
 
 ```text
-Select Antigravity Account (↑/↓ arrow keys, Enter to switch, q to cancel):
+Select Universal Antigravity Account (↑/↓ arrow keys, Enter to switch, q to cancel):
   ▶ [1] sishihidul@gmail.com      [Gem: 100% | Cld: 100%] [CURRENT ACTIVE]
-    [2] kaziaremon@gmail.com      [Gem:  23% | Cld:  96%]
-    [3] kulsumaakter722@gmail.com [Gem:  80% | Cld: 100%]
+    [2] kaziaremon@gmail.com      [Gem:  89% | Cld: 100%]
+    [3] kulsumaakter722@gmail.com [Gem:  99% | Cld: 100%]
 ```
 
-*(You can also run `ag-auth switch` without parameters to open this same picker).*
+Or switch directly:
+```bash
+@ kaziaremon@gmail.com
+```
 
 ---
 
-### 2. AI Quota Dashboard (`ag-auth quota`)
-Inspect your model quotas and reset countdowns across all stored accounts:
+### 2. Multi-Surface Switching (`-s` / `--surface`)
+By default, switching updates **all surfaces** (CLI, IDE, and 2.0 Desktop App). You can also selectively target a specific surface:
+
+```bash
+# Switch all surfaces (CLI, IDE, 2.0 App)
+ag-auth switch kaziaremon@gmail.com
+
+# Switch only Antigravity IDE
+ag-auth switch kaziaremon@gmail.com -s ide
+
+# Switch only Antigravity 2.0 Desktop
+ag-auth switch kaziaremon@gmail.com -s app
+
+# Switch only Antigravity CLI
+ag-auth switch kaziaremon@gmail.com -s cli
+```
+
+> **Note on Running IDE / Desktop Apps**: If Antigravity IDE or 2.0 Desktop is open when you switch, `ag-auth` updates the SQLite database immediately and alerts you to reload your IDE window (`Cmd/Ctrl+Shift+P` ➔ *Reload Window*) or restart the app.
+
+---
+
+### 3. AI Quota Dashboard (`ag-auth quota`)
+Inspect model quotas and reset countdowns across all stored accounts:
 ```bash
 ag-auth quota
 ```
@@ -111,48 +188,35 @@ ag-auth quota
 Output:
 ```text
 ========================================
-  Antigravity AI Quota Dashboard        
+  Universal Antigravity Quota Dashboard 
 ========================================
 
-Account: kaziaremon@gmail.com
+Account: kaziaremon@gmail.com [CURRENT ACTIVE]
   • Gemini Models (Flash, Pro):
-      Weekly Limit:  [███░░░░░░░░░]  22.9% (resets in 3d 8h)
-      5-Hour Window: [████████████]  99.1% (resets in 4h 45m)
+      Weekly Limit:  [███████████░]  89.0% (resets in 3d 21h)
+      5-Hour Window: [███████████░]  93.3% (resets in 3h 19m)
   • Claude & GPT Models (Sonnet, Opus, GPT-OSS):
-      Weekly Limit:  [████████████]  96.5% (resets in 2d 12h)
+      Weekly Limit:  [████████████] 100.0%
       5-Hour Window: [████████████] 100.0%
 
 Account: kulsumaakter722@gmail.com
   • Gemini Models (Flash, Pro):
-      Weekly Limit:  [██████████░░]  79.9% (resets in 3d 14h)
-      5-Hour Window: [████████████]  99.1% (resets in 4h 46m)
-  • Claude & GPT Models (Sonnet, Opus, GPT-OSS):
-      Weekly Limit:  [████████████] 100.0%
+      Weekly Limit:  [████████████]  99.1% (resets in 6d 0h)
       5-Hour Window: [████████████] 100.0%
-
-Account: sishihidul@gmail.com [CURRENT ACTIVE]
-  • Gemini Models (Flash, Pro):
-      Weekly Limit:  [████████████]  99.5% (resets in 6d 23h)
-      5-Hour Window: [████████████]  97.0% (resets in 4h 52m)
   • Claude & GPT Models (Sonnet, Opus, GPT-OSS):
       Weekly Limit:  [████████████] 100.0%
       5-Hour Window: [████████████] 100.0%
 ```
 
-To bypass the 3-minute cache and fetch live figures immediately from Google:
+To bypass the cache and fetch fresh live numbers:
 ```bash
 ag-auth quota --refresh
 ```
 
-To inspect a single specific account:
-```bash
-ag-auth quota kaziaremon@gmail.com
-```
-
 ---
 
-### 3. Profile Overview (`ag-auth list`)
-List all vaulted profiles alongside their remaining quotas and token expirations:
+### 4. Account Overview (`ag-auth list`)
+List all vaulted profiles with inline quota bars and runtime surface indicators:
 ```bash
 ag-auth list
 ```
@@ -161,59 +225,40 @@ Output:
 ```text
 === Vaulted Antigravity Profiles & Quotas ===
 
-    kaziaremon@gmail.com
-      Gemini:  [██░░░░░░░░]  22.9% weekly (resets: 3d 8h) |  99.1% 5h
-      Claude:  [██████████]  96.5% weekly (resets: 2d 12h) | 100.0% 5h
-      Token Expiry: 2026-09-20 00:56:26 UTC
-
-    kulsumaakter722@gmail.com
-      Gemini:  [████████░░]  79.9% weekly (resets: 3d 14h) |  99.1% 5h
+▶ kaziaremon@gmail.com [CURRENT ACTIVE] (CLI, IDE, App)
+      Gemini:  [█████████░]  89.0% weekly (resets: 3d 21h) |  93.3% 5h
       Claude:  [██████████] 100.0% weekly | 100.0% 5h
-      Token Expiry: 2026-09-20 00:56:26 UTC
+      Token Expiry: 2026-09-28 14:35:04 UTC
 
-▶ sishihidul@gmail.com [CURRENT ACTIVE]
-      Gemini:  [██████████]  99.5% weekly (resets: 6d 23h) |  97.0% 5h
+    kulsumaakter722@gmail.com (CLI, IDE, App)
+      Gemini:  [██████████]  99.1% weekly (resets: 6d 0h) | 100.0% 5h
       Claude:  [██████████] 100.0% weekly | 100.0% 5h
-      Token Expiry: 2026-09-20 00:44:21 UTC
+      Token Expiry: 2026-09-28 16:16:18 UTC
 ```
 
 ---
 
-### 4. Quick Command Reference
+### 5. Quick Command Reference
 
 | Action | Command | Description |
 | :--- | :--- | :--- |
-| **Instant Switch** | `@` | Opens interactive arrow-key selector with live quotas (`↑`/`↓` + Enter) |
-| **Switch (Interactive)**| `ag-auth switch` | Opens interactive arrow-key selector with live quotas |
-| **Switch (Direct)** | `ag-auth switch <email>` | Swaps active session to the specified email |
-| **AI Quota Dashboard** | `ag-auth quota` | Full quota dashboard with weekly/5h limits and reset timers |
-| **Force Refresh Quota**| `ag-auth quota -r` | Bypasses local cache to fetch live quotas from Google |
-| **Single Account Quota**| `ag-auth quota <email>`| Shows detailed quota cards for a specific profile |
-| **Check Active** | `ag-auth current` | Shows active account, token details, and active AI quota |
-| **Save Session** | `ag-auth save [name]` | Vaults current session (auto-detects email) |
-| **Detach Session** | `ag-auth detach` | Clears active token so `agy` prompts for a new account |
-| **List Accounts** | `ag-auth list` | Lists all vaulted profiles with inline progress bars |
-| **Delete Account** | `ag-auth delete [name]` | Removes a profile from the vault |
+| **Instant Switch** | `@` | Opens interactive arrow-key selector (`↑`/`↓` + Enter) |
+| **Direct Switch** | `@ <email>` | Swaps active session to the specified email across all surfaces |
+| **Surface Switch** | `ag-auth switch <email> -s <surface>` | Target specific runtime (`all`, `cli`, `ide`, `app`) |
+| **AI Quotas** | `ag-auth quota [--refresh]` | Full quota dashboard with progress bars and reset countdowns |
+| **Check Active** | `ag-auth current` | Shows active account, runtime surface connections, and limits |
+| **Save Session** | `ag-auth save [name]` | Vaults current session (auto-captures CLI + IDE + 2.0) |
+| **Detach Session** | `ag-auth detach [-s surface]` | Clears active tokens so you can authenticate a new account |
+| **List Accounts** | `ag-auth list [--refresh]` | Lists vaulted profiles with live quota summary & surfaces |
+| **Install Tabs** | `ag-auth completion install` | One-step tab autocompletion setup for your active shell |
 | **Master Menu** | `ag-auth` | Opens interactive numbered terminal menu |
 
 ---
 
-### 5. Multi-Account Setup Workflow
+## 🔒 Security & Privacy
 
-1. **Log in with Account A**: Run `agy` and complete login in browser.
-2. **Save Account A**: Run `ag-auth save`.
-3. **Detach Session**: Run `ag-auth detach`.
-4. **Log in with Account B**: Run `agy` (a new OAuth browser prompt opens).
-5. **Save Account B**: Run `ag-auth save`.
-6. **Switch anytime**: Type `@` and hit Enter!
-
----
-
-## 🔒 Security & Safe Operation
-
-- **Zero Disruption to Active Sessions**: Uses the official, read-only administrative telemetry endpoint (`retrieveUserQuotaSummary`). It consumes **0 model tokens** and does not interrupt running agent interactions or command execution.
 - **100% Local Storage**: All tokens, credentials, and metadata remain strictly on your local machine in `~/.gemini/auth_vault/`.
-- **Restricted Permissions**: Directories are created with `0700` permissions and token files with `0600` permissions, ensuring no other user on the system can read them.
+- **Restricted Permissions**: Directories are created with `0700` permissions and token files with `0600` permissions on POSIX systems.
 - **Git Protection**: The repository `.gitignore` automatically blocks tokens, credentials, cache files, and private keys from ever being staged or committed.
 
 ---
