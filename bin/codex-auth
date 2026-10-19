@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# Universal Codex Multi-Account Session Vault (CLI Launcher)
+# ==============================================================================
+set -e
+
+SOURCE="${BASH_SOURCE[0]:-$0}"
+while [ -L "$SOURCE" ]; do
+  DIR="$(cd -P "$(dirname "$SOURCE")" >/dev/null 2>&1 && pwd)"
+  SOURCE="$(readlink "$SOURCE")"
+  [[ $SOURCE != /* ]] && SOURCE="$DIR/$SOURCE"
+done
+SCRIPT_DIR="$(cd -P "$(dirname "$SOURCE")" >/dev/null 2>&1 && pwd)"
+
+if ! command -v node >/dev/null 2>&1; then
+    echo "Error: Node.js is required to run codex-auth. Please install Node.js." >&2
+    exit 1
+fi
+
+exec node "${SCRIPT_DIR}/ag-auth.js" -t codex "$@"

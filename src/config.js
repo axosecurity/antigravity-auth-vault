@@ -23,6 +23,17 @@ const ACTIVE_ACCOUNTS = path.join(GEMINI_DIR, 'google_accounts.json');
 // Hidden permanent installation directory
 const HIDDEN_DIR = path.join(HOME, '.antigravity-auth-vault');
 
+// OpenAI Codex paths & endpoints
+const CODEX_DIR = path.join(HOME, '.codex');
+const CODEX_AUTH = path.join(CODEX_DIR, 'auth.json');
+const CODEX_SESSION = path.join(HOME, '.codex-session');
+const CODEX_DAEMON_PID = path.join(CODEX_DIR, 'app-server-daemon', 'daemon.pid');
+
+const OPENAI_CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann';
+const OPENAI_TOKEN_URL = 'https://auth.openai.com/oauth/token';
+const CHATGPT_ACCOUNTS_URL = 'https://chatgpt.com/backend-api/accounts/check/v4-2023-04-27';
+const CHATGPT_ME_URL = 'https://chatgpt.com/backend-api/me';
+
 // Multi-Surface Storage Paths (state.vscdb)
 let IDE_STORAGE = '';
 let APP_STORAGE = '';
@@ -68,7 +79,7 @@ function ensureVaultDirs() {
 }
 
 module.exports = {
-  VERSION: '2.3.0',
+  VERSION: '2.4.0',
   PLATFORM,
   IS_WIN,
   HOME,
@@ -80,6 +91,14 @@ module.exports = {
   ACTIVE_CREDS,
   ACTIVE_ACCOUNTS,
   HIDDEN_DIR,
+  CODEX_DIR,
+  CODEX_AUTH,
+  CODEX_SESSION,
+  CODEX_DAEMON_PID,
+  OPENAI_CLIENT_ID,
+  OPENAI_TOKEN_URL,
+  CHATGPT_ACCOUNTS_URL,
+  CHATGPT_ME_URL,
   IDE_STORAGE,
   APP_STORAGE,
   CLIENT_ID,

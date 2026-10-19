@@ -1,16 +1,17 @@
-# Universal Antigravity Auth Vault & Multi-Account Switcher (`ag-auth`)
+# Universal Antigravity & OpenAI Codex Auth Vault (`ag-auth` / `codex-auth`)
 
 <p align="center">
   <a href="https://github.com/axosecurity/antigravity-auth-vault/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge" alt="License: MIT"></a>
   <img src="https://img.shields.io/badge/Platform-macOS%20%7C%20Linux%20%7C%20Windows-brightgreen.svg?style=for-the-badge" alt="Platforms">
   <img src="https://img.shields.io/badge/Node.js-%3E%3D14.0.0-339933.svg?style=for-the-badge&logo=node.js&logoColor=white" alt="Node.js">
+  <img src="https://img.shields.io/badge/Engines-Antigravity%20%7C%20OpenAI%20Codex-purple.svg?style=for-the-badge" alt="Engines">
   <img src="https://img.shields.io/badge/Security-AES--256--CBC%20E2EE-blueviolet.svg?style=for-the-badge" alt="Security">
   <img src="https://img.shields.io/badge/Team%20Sync-Neon%20%7C%20PostgreSQL%20%7C%20Supabase-00e699.svg?style=for-the-badge" alt="Databases">
 </p>
 
 <p align="center">
-  <strong>A high-performance, cross-platform session vault, instant account switcher, encrypted team database synchronizer, and real-time AI quota monitor for Google Antigravity.</strong><br>
-  Works seamlessly across <strong>Antigravity CLI (<code>agy</code>)</strong>, <strong>Antigravity IDE</strong>, and <strong>Antigravity 2.0 Desktop</strong>.
+  <strong>A high-performance, cross-platform dual-engine session vault, instant account switcher, encrypted team database synchronizer, and real-time AI quota monitor.</strong><br>
+  Works seamlessly across <strong>Antigravity CLI (<code>agy</code>)</strong>, <strong>Antigravity IDE</strong>, <strong>Antigravity 2.0 Desktop</strong>, and <strong>OpenAI Codex CLI (<code>codex</code>)</strong> with background app-server daemon sync.
 </p>
 
 ---
@@ -57,13 +58,14 @@ Select Universal Antigravity Account (↑/↓ arrow keys, Enter to switch, 1-9 d
 
 | Feature | Description |
 | :--- | :--- |
-| **🚀 Pure Node.js Core** | 100% written in modern Node.js (`>= 14`). Zero external Python or OpenSSL CLI dependencies. |
-| **⚡ Instant `@` Switcher** | Type `@` to launch an interactive terminal UI with arrow-key navigation and live quota bars. |
-| **📊 Real-Time AI Quota Monitor** | Directly queries Google Cloud Code quota APIs for weekly and 5-hour limits on Gemini & Claude. |
+| **🚀 Dual-Engine Core** | 100% written in modern Node.js (`>= 14`). Native support for both **Google Antigravity** and **OpenAI Codex**. |
+| **⚡ Instant `@` Switcher** | Type `@` to launch an interactive terminal UI with arrow-key navigation, live quotas, and provider badges. |
+| **📊 Real-Time AI Quota Monitor** | Directly queries Google Cloud Code quota APIs (Gemini & Claude) and OpenAI ChatGPT plan tiers (Plus, Team, Pro). |
 | **⏳ Smart Reset Timers** | Displays exact countdowns until model capacity refills (e.g. `resets: 3d 20h` or `resets: 2h 7m`). |
+| **🔄 Codex Daemon Auto-Restart** | Automatically reloads Codex background app-server daemon (`~/.codex/app-server-daemon`) on credential switch. |
 | **☁️ Team Database Sync** | 1-line connection to serverless PostgreSQL (**Neon**, **Supabase**, or shared network folders). |
 | **🔐 Zero-Knowledge E2EE** | Tokens are encrypted on your device using **AES-256-CBC (PBKDF2 with 100,000 iterations)**. |
-| **🧩 Multi-Surface Atomic Sync** | Automatically updates **CLI (`agy`)**, **Antigravity IDE**, and **2.0 Desktop** SQLite state. |
+| **🧩 Multi-Surface Atomic Sync** | Automatically updates **CLI (`agy`)**, **Antigravity IDE**, **2.0 Desktop**, and **Codex (`auth.json`)**. |
 | **⌨️ Tab Autocompletion** | Full `<TAB>` completion for commands, flags, and account emails in Bash, Zsh, Fish, & PowerShell. |
 | **🛡️ Universal OS Keyring** | Integrates with **Apple Keychain**, **Linux Secret Service**, and **Windows Credential Manager**. |
 | **🗑️ Clean Uninstallation** | Remove the tool and shell links anytime with a single command (`ag-auth uninstall`). |
@@ -74,11 +76,12 @@ Select Universal Antigravity Account (↑/↓ arrow keys, Enter to switch, 1-9 d
 
 ```text
 +-----------------------------------------------------------------------------------+
-|                            Active Antigravity Runtimes                            |
+|                        Active AI Assistant & IDE Runtimes                         |
 |                                                                                   |
-|  • CLI:      ~/.gemini/antigravity-cli/antigravity-oauth-token & OS Keyring       |
-|  • IDE:      Antigravity IDE/User/globalStorage/state.vscdb (SQLite ItemTable)    |
-|  • 2.0 App:  Antigravity/User/globalStorage/state.vscdb (SQLite ItemTable)        |
+|  • Antigravity CLI:   ~/.gemini/antigravity-cli/antigravity-oauth-token & Keyring |
+|  • Antigravity IDE:   Antigravity IDE/User/globalStorage/state.vscdb (SQLite)     |
+|  • 2.0 Desktop App:   Antigravity/User/globalStorage/state.vscdb (SQLite)         |
+|  • OpenAI Codex:      ~/.codex/auth.json & App-Server Daemon                      |
 +------------------------------------------+----------------------------------------+
                                            |
                     [ ag-auth switch / detach / save / quota ]
@@ -89,9 +92,11 @@ Select Universal Antigravity Account (↑/↓ arrow keys, Enter to switch, 1-9 d
 |                             (~/.gemini/auth_vault/)                               |
 |                                                                                   |
 |   ├── profiles/first_account@gmail.com/                                           |
-|   │   ├── antigravity-oauth-token       (CLI session token)                       |
+|   │   ├── antigravity-oauth-token       (Antigravity CLI token)                   |
 |   │   ├── ide_state.json                (IDE session snapshot)                    |
 |   │   ├── app_state.json                (2.0 Desktop session snapshot)            |
+|   │   ├── codex_auth.json               (OpenAI Codex tokens & auth_mode)         |
+|   │   ├── codex_session.json            (Optional Codex cluster session)          |
 |   │   ├── oauth_creds.json              (Supporting OAuth credentials)            |
 |   │   ├── profile.json                  (Metadata & saved timestamp)              |
 |   │   └── quota_cache.json              (Cached AI model quota response)          |
@@ -330,17 +335,21 @@ Antigravity Auth Vault is designed from the ground up to prevent secret leaks:
 
 | Command | Action |
 | :--- | :--- |
-| `@` | Launch instant interactive arrow-key account selector |
+| `@` | Launch instant interactive switcher with live quotas & plan badges |
 | `@ <email>` | Directly switch active account across all surfaces |
-| `ag-auth switch [email]` | Switch account (CLI, IDE, and 2.0 Desktop) |
+| `ag-auth switch [email]` | Switch account (Antigravity CLI/IDE/2.0 & OpenAI Codex) |
+| `ag-auth switch <email> -t codex` | Switch only OpenAI Codex credentials |
+| `ag-auth switch <email> -t ag` | Switch only Antigravity credentials |
 | `ag-auth switch <email> -s ide` | Switch only Antigravity IDE |
 | `ag-auth switch <email> -s app` | Switch only Antigravity 2.0 Desktop |
 | `ag-auth switch <email> -s cli` | Switch only Antigravity CLI |
-| `ag-auth quota [--refresh]` | Display detailed AI quota dashboard (Gemini & Claude limits) |
-| `ag-auth list [--refresh]` | List all vaulted profiles with inline quota progress bars |
-| `ag-auth current` | Show active account, token expiry, and runtime surfaces |
-| `ag-auth save [name]` | Save current session to vault (auto-captures CLI + IDE + App) |
-| `ag-auth detach` | Stash active session and clear tokens for fresh login |
+| `codex-auth switch [email]` | Dedicated OpenAI Codex switcher |
+| `ag-auth quota [--refresh]` | Display detailed AI quota & plan dashboard |
+| `ag-auth list [--refresh]` | List all vaulted profiles with inline quotas and plan badges |
+| `ag-auth current` | Show active Antigravity & Codex sessions, runtimes, and limits |
+| `ag-auth save [name]` | Save current session (auto-captures Antigravity + Codex) |
+| `ag-auth save [name] -t codex` | Save only current OpenAI Codex session |
+| `ag-auth detach [-t tool]` | Stash active session and clear tokens for fresh login |
 | `ag-auth delete <email>` | Remove an account profile from local vault |
 | `ag-auth db setup "<url>"` | Connect team database (Neon / Postgres, Supabase, Folder) |
 | `ag-auth db status` | Check database connection health & remote profile count |

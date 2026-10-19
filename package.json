@@ -1,16 +1,17 @@
 {
   "name": "antigravity-auth-vault",
-  "version": "2.3.0",
-  "description": "Universal Antigravity Multi-Account Session Vault (CLI, IDE, 2.0 Desktop) with Zero-Knowledge AES-256 E2EE & Cloud Sync",
+  "version": "2.4.0",
+  "description": "Universal Dual-Engine Multi-Account Session Vault (Antigravity & OpenAI Codex) with Zero-Knowledge AES-256 E2EE & Cloud Sync",
   "main": "bin/cli.js",
   "bin": {
     "antigravity-auth-vault": "./bin/cli.js",
-    "ag-auth": "./bin/cli.js"
+    "ag-auth": "./bin/cli.js",
+    "codex-auth": "./bin/codex-auth"
   },
   "scripts": {
     "install-local": "./install.sh",
     "uninstall-local": "./uninstall.sh",
-    "test": "node bin/ag-auth.js version && bash -n bin/ag-auth"
+    "test": "node bin/ag-auth.js version && bash -n bin/ag-auth && bash -n bin/codex-auth"
   },
   "repository": {
     "type": "git",

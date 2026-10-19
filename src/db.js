@@ -269,8 +269,10 @@ async function cliDbPush() {
 
   for (const d of dirs) {
     const p = path.join(PROFILES_DIR, d);
-    const tokenPath = path.join(p, 'antigravity-oauth-token');
-    if (fs.existsSync(tokenPath) && fs.statSync(p).isDirectory()) {
+    if (!fs.statSync(p).isDirectory()) continue;
+    const hasAg = fs.existsSync(path.join(p, 'antigravity-oauth-token'));
+    const hasCodex = fs.existsSync(path.join(p, 'codex_auth.json'));
+    if (hasAg || hasCodex) {
       const payload = { email: d, files: {} };
       for (const fn of fs.readdirSync(p)) {
         const fp = path.join(p, fn);

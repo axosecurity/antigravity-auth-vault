@@ -136,9 +136,10 @@ function formatResetCountdown(targetDateStr) {
 
 async function getProfileQuota(profileDir, force = false) {
   const tokenFile = path.join(profileDir, 'antigravity-oauth-token');
+  const codexFile = path.join(profileDir, 'codex_auth.json');
   const cacheFile = path.join(profileDir, 'quota_cache.json');
 
-  if (!fs.existsSync(tokenFile)) return null;
+  if (!fs.existsSync(tokenFile) && !fs.existsSync(codexFile)) return null;
 
   if (!force && fs.existsSync(cacheFile)) {
     try {
@@ -147,6 +148,23 @@ async function getProfileQuota(profileDir, force = false) {
         return JSON.parse(fs.readFileSync(cacheFile, 'utf8'));
       }
     } catch (_) {}
+  }
+
+  // Handle Codex profile quota
+  if (!fs.existsSync(tokenFile) && fs.existsSync(codexFile)) {
+    try {
+      const { getCodexAccountInfo } = require('./codex');
+      const authData = JSON.parse(fs.readFileSync(codexFile, 'utf8'));
+      const accInfo = await getCodexAccountInfo(authData);
+      const result = {
+        cached_at: new Date().toISOString(),
+        codex: accInfo
+      };
+      fs.writeFileSync(cacheFile, JSON.stringify(result, null, 2), 'utf8');
+      return result;
+    } catch (_) {
+      return null;
+    }
   }
 
   let tokenData;
@@ -244,6 +262,12 @@ async function getProfileQuota(profileDir, force = false) {
         }
       }
     }
+  }
+
+  // If Gemini has no explicit rate-limit buckets returned, it runs on the Unmetered Standard Tier
+  if (Object.keys(result.gemini).length === 0) {
+    result.gemini.weekly = { pct: 100, resets_in: '', unmetered: true };
+    result.gemini['5h'] = { pct: 100, resets_in: '', unmetered: true };
   }
 
   try {

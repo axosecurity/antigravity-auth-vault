@@ -32,7 +32,7 @@ if (args.includes('--help') || args.includes('-h')) {
 }
 
 // If subcommands are passed directly, forward to bin/ag-auth.js
-const subcommands = ['switch', 'quota', 'list', 'current', 'save', 'detach', 'delete', 'db', 'completion', 'version', 'help', '@'];
+const subcommands = ['switch', 'quota', 'list', 'current', 'save', 'detach', 'delete', 'db', 'completion', 'version', 'help', '@', 'codex'];
 if (args.length > 0 && (subcommands.includes(args[0]) || args[0].startsWith('-'))) {
   const scriptPath = path.join(__dirname, 'ag-auth.js');
   const res = spawnSync(process.execPath, [scriptPath, ...args], { stdio: 'inherit' });

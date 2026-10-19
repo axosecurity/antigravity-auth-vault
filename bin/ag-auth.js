@@ -108,22 +108,22 @@ async function cmdInteractive() {
 }
 
 function showHelp() {
-  console.log(`${BOLD}ag-auth${NC} - Universal Antigravity Multi-Account Session Vault (CLI, IDE, 2.0 Desktop)`);
+  console.log(`${BOLD}ag-auth${NC} - Universal Multi-Account Session Vault (${BOLD}Antigravity & OpenAI Codex${NC})`);
   console.log(`Pure JavaScript / Node.js Engine (${VERSION})\n`);
   console.log(`${BOLD}Usage:${NC}`);
-  console.log('  @                                 Instant interactive account switcher with live quota (↑/↓ + Enter)');
-  console.log('  @ <profile>                       Directly switch to an account by email');
+  console.log('  @                                 Instant interactive switcher with live quotas & plan badges');
+  console.log('  @ <profile>                       Directly switch to an account by email/name');
   console.log('  ag-auth switch                    Interactive arrow-key account selector');
-  console.log('  ag-auth switch <profile>          Switch all surfaces (CLI, IDE, 2.0 App)');
+  console.log('  ag-auth switch <profile>          Switch surfaces (Antigravity CLI/IDE/2.0 & OpenAI Codex)');
+  console.log('  ag-auth switch <profile> -t codex Switch only OpenAI Codex credentials');
+  console.log('  ag-auth switch <profile> -t ag    Switch only Antigravity credentials');
   console.log('  ag-auth switch <profile> -s ide   Switch only Antigravity IDE');
-  console.log('  ag-auth switch <profile> -s app   Switch only Antigravity 2.0 Desktop');
-  console.log('  ag-auth switch <profile> -s cli   Switch only Antigravity CLI');
-  console.log('  ag-auth quota [--refresh]         Display detailed AI quota dashboard (Gemini & Claude limits)');
-  console.log('  ag-auth quota <profile>           Display AI quota for a specific profile');
-  console.log('  ag-auth list [--refresh]          List all stored profiles with inline quota bars');
-  console.log('  ag-auth current                   Show active account, runtime surfaces, and limits');
-  console.log('  ag-auth save [name]               Archive current session (auto-captures CLI + IDE + 2.0)');
-  console.log('  ag-auth detach [-s surface]       Stash active session & clear tokens for clean login');
+  console.log('  ag-auth current                   Show active sessions, runtime surfaces, and quotas');
+  console.log('  ag-auth list [--refresh]          List all stored profiles with quotas and plan tiers');
+  console.log('  ag-auth quota [profile]           Display detailed quota / subscription dashboard');
+  console.log('  ag-auth save [name]               Archive current session (auto-captures Antigravity + Codex)');
+  console.log('  ag-auth save [name] -t codex      Archive only current OpenAI Codex session');
+  console.log('  ag-auth detach [-t tool]          Stash active session & clear tokens for clean login');
   console.log('  ag-auth delete [profile]          Remove a profile from vault');
   console.log('  ag-auth uninstall [--purge]       Cleanly delete this tool from computer (keep or wipe data)\n');
   console.log(`${BOLD}Team Vault & Cloud Database:${NC}`);
@@ -131,21 +131,10 @@ function showHelp() {
   console.log('  ag-auth db status                 Check connection health, auto-sync status & profile count');
   console.log('  ag-auth db sync                   Two-way sync (push local accounts + pull team accounts)');
   console.log('  ag-auth db push                   Encrypt and upload local accounts to team database');
-  console.log('  ag-auth db pull                   Download and decrypt team accounts into local vault');
-  console.log('  ag-auth db auto-sync [on|off]     Check or toggle automatic background synchronization');
-  console.log('  ag-auth db daemon [seconds]       Run persistent background auto-sync polling daemon');
-  console.log('  ag-auth db disconnect             Unlink remote database (local accounts are kept intact)\n');
+  console.log('  ag-auth db pull                   Download and decrypt team accounts into local vault\n');
   console.log(`${BOLD}Shell Autocompletion:${NC}`);
   console.log('  ag-auth completion install        Install tab autocompletion for bash, zsh, fish, powershell');
   console.log('  ag-auth                           Launch full interactive menu\n');
-  console.log(`${BOLD}Examples:${NC}`);
-  console.log('  @                                 # Instant switch with arrow keys and live quotas!');
-  console.log('  ag-auth switch <TAB>              # Tab auto-fill accounts (lazy programmer mode)!');
-  console.log('  ag-auth db setup "postgresql://..." # 1-line connection to Neon / Postgres');
-  console.log('  ag-auth db sync                   # Sync and pool accounts across all team members');
-  console.log('  ag-auth quota --refresh           # Live AI limits with reset countdowns');
-  console.log('  ag-auth completion install        # One-step tab completion setup');
-  console.log('  ag-auth uninstall                 # Complete clean removal from system\n');
 }
 
 async function main() {
@@ -154,13 +143,15 @@ async function main() {
 
   // Invoked directly as '@'
   if (baseCmd === '@' || process.argv[1].endsWith(path.sep + '@')) {
-    await cmdSwitch(rawArgs[0] || '', 'all');
+    await cmdSwitch(rawArgs[0] || '', 'all', 'auto');
     return;
   }
 
-  // Parse surface flag (-s / --surface)
+  // Parse surface flag (-s / --surface) and tool flag (-t / --tool)
   let surface = 'all';
+  let tool = baseCmd.includes('codex') ? 'codex' : 'auto';
   const filteredArgs = [];
+
   for (let i = 0; i < rawArgs.length; i++) {
     const a = rawArgs[i];
     if (a === '-s' || a === '--surface') {
@@ -168,17 +159,31 @@ async function main() {
       i++;
     } else if (a.startsWith('--surface=')) {
       surface = a.split('=')[1] || 'all';
+    } else if (a === '-t' || a === '--tool') {
+      const val = (rawArgs[i + 1] || '').toLowerCase();
+      tool = (val === 'ag' || val === 'antigravity') ? 'antigravity' : val;
+      i++;
+    } else if (a.startsWith('--tool=')) {
+      const val = a.split('=')[1].toLowerCase();
+      tool = (val === 'ag' || val === 'antigravity') ? 'antigravity' : val;
     } else {
       filteredArgs.push(a);
     }
   }
 
-  const cmd = filteredArgs[0] || '';
+  let cmd = filteredArgs[0] || '';
+
+  // Shorthand: `ag-auth codex <subcommand>`
+  if (cmd === 'codex') {
+    tool = 'codex';
+    cmd = filteredArgs[1] || 'current';
+    filteredArgs.splice(0, 1);
+  }
 
   if (cmd === '@') {
-    await cmdSwitch(filteredArgs[1] || '', surface);
+    await cmdSwitch(filteredArgs[1] || '', surface, tool);
   } else if (cmd === 'switch' || cmd === 'use') {
-    await cmdSwitch(filteredArgs[1] || '', surface);
+    await cmdSwitch(filteredArgs[1] || '', surface, tool);
   } else if (cmd === 'current' || cmd === 'status') {
     await cmdCurrent();
   } else if (cmd === 'list' || cmd === 'ls') {
@@ -189,9 +194,9 @@ async function main() {
     const target = filteredArgs.slice(1).find(a => !a.startsWith('-')) || '';
     await cmdQuota(target, refresh);
   } else if (cmd === 'save' || cmd === 'archive') {
-    await cmdSave(filteredArgs[1] || '');
+    await cmdSave(filteredArgs[1] || '', tool);
   } else if (cmd === 'detach' || cmd === 'new' || cmd === 'logout-temp') {
-    await cmdDetach(surface);
+    await cmdDetach(surface, tool);
   } else if (cmd === 'delete' || cmd === 'rm') {
     cmdDelete(filteredArgs[1] || '');
   } else if (cmd === 'db' || cmd === 'sync-db' || cmd === 'cloud') {

@@ -59,10 +59,12 @@ function installToHiddenDir(sourceDir) {
 
   // Ensure binaries are executable
   const installedAgAuth = path.join(HIDDEN_DIR, 'bin', IS_WIN ? 'ag-auth.cmd' : 'ag-auth');
+  const installedCodexAuth = path.join(HIDDEN_DIR, 'bin', IS_WIN ? 'codex-auth.cmd' : 'codex-auth');
   const installedAgAuthJs = path.join(HIDDEN_DIR, 'bin', 'ag-auth.js');
   if (!IS_WIN) {
     try {
       if (fs.existsSync(installedAgAuth)) fs.chmodSync(installedAgAuth, 0o755);
+      if (fs.existsSync(installedCodexAuth)) fs.chmodSync(installedCodexAuth, 0o755);
       if (fs.existsSync(installedAgAuthJs)) fs.chmodSync(installedAgAuthJs, 0o755);
     } catch (_) {}
   }
@@ -74,24 +76,30 @@ function installToHiddenDir(sourceDir) {
   if (IS_WIN) {
     try {
       fs.copyFileSync(path.join(HIDDEN_DIR, 'bin', 'ag-auth.cmd'), path.join(binDir, 'ag-auth.cmd'));
+      fs.copyFileSync(path.join(HIDDEN_DIR, 'bin', 'codex-auth.cmd'), path.join(binDir, 'codex-auth.cmd'));
       fs.copyFileSync(path.join(HIDDEN_DIR, 'bin', '@.cmd'), path.join(binDir, '@.cmd'));
     } catch (_) {}
   } else {
     const targetBin = path.join(binDir, 'ag-auth');
+    const targetCodexBin = path.join(binDir, 'codex-auth');
     const targetAt = path.join(binDir, '@');
 
     try { if (fs.existsSync(targetBin) || fs.lstatSync(targetBin).isSymbolicLink()) fs.unlinkSync(targetBin); } catch (_) {}
+    try { if (fs.existsSync(targetCodexBin) || fs.lstatSync(targetCodexBin).isSymbolicLink()) fs.unlinkSync(targetCodexBin); } catch (_) {}
     try { if (fs.existsSync(targetAt) || fs.lstatSync(targetAt).isSymbolicLink()) fs.unlinkSync(targetAt); } catch (_) {}
 
     try {
       fs.symlinkSync(installedAgAuth, targetBin);
+      fs.symlinkSync(installedCodexAuth, targetCodexBin);
       fs.symlinkSync(targetBin, targetAt);
     } catch (_) {
       fs.copyFileSync(installedAgAuth, targetBin);
+      fs.copyFileSync(installedCodexAuth, targetCodexBin);
       fs.copyFileSync(installedAgAuth, targetAt);
     }
     try {
       fs.chmodSync(targetBin, 0o755);
+      fs.chmodSync(targetCodexBin, 0o755);
       fs.chmodSync(targetAt, 0o755);
     } catch (_) {}
   }

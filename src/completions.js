@@ -20,9 +20,10 @@ function getBashCompletionScript() {
     '        prev="${COMP_WORDS[COMP_CWORD-1]}"',
     '    fi',
     '',
-    '    local commands="switch quota list current save detach delete db completion uninstall version help"',
-    '    local flags="--refresh -r --force -f --surface -s --help -h --version -v"',
+    '    local commands="switch quota list current save detach delete db completion uninstall version help codex"',
+    '    local flags="--refresh -r --force -f --surface -s --tool -t --help -h --version -v"',
     '    local surfaces="all cli ide app"',
+    '    local tools="all antigravity codex ag"',
     '    local db_cmds="setup status push pull sync auto-sync daemon disconnect"',
     '',
     '    if [[ ${COMP_CWORD} -eq 1 ]]; then',
@@ -49,6 +50,10 @@ function getBashCompletionScript() {
     '            COMPREPLY=($(compgen -W "$surfaces" -- "$cur"))',
     '            return 0',
     '            ;;',
+    '        --tool|-t)',
+    '            COMPREPLY=($(compgen -W "$tools" -- "$cur"))',
+    '            return 0',
+    '            ;;',
     '        completion)',
     '            COMPREPLY=($(compgen -W "bash zsh fish powershell install" -- "$cur"))',
     '            return 0',
@@ -65,13 +70,14 @@ function getBashCompletionScript() {
     '    esac',
     '}',
     'complete -F _ag_auth_completions ag-auth',
+    'complete -F _ag_auth_completions codex-auth',
     'complete -F _ag_auth_completions @'
   ].join('\n') + '\n';
 }
 
 function getZshCompletionScript() {
   return [
-    '#compdef ag-auth @',
+    '#compdef ag-auth codex-auth @',
     '',
     '_ag_auth() {',
     '    local -a commands',
