@@ -54,7 +54,8 @@ if (PLATFORM === 'darwin') {
 const CLIENT_ID = '1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com';
 const CLIENT_SECRET = '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';
 const TOKEN_URL = 'https://oauth2.googleapis.com/token';
-const QUOTA_URL = 'https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary';
+const QUOTA_URL = 'https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary';
+const DAILY_QUOTA_URL = 'https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary';
 const CACHE_TTL_MS = 3 * 60 * 1000; // 3 minutes cache
 
 // ANSI Styling
@@ -105,6 +106,7 @@ module.exports = {
   CLIENT_SECRET,
   TOKEN_URL,
   QUOTA_URL,
+  DAILY_QUOTA_URL,
   CACHE_TTL_MS,
   GREEN,
   BLUE,

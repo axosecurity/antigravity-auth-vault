@@ -104,3 +104,32 @@ Replaced the serial loop with concurrent prefetching using `Promise.all(...)` ac
 Never execute independent asynchronous network requests sequentially inside loops; always prefetch concurrently with `Promise.all` and bounded timeouts.
 
 ---
+
+## QUOTA_URL — src/config.js
+
+**Date:** 2026-10-20
+
+**Function info:**
+Defines the Google Cloud Code quota API endpoint used to query user AI model quota summaries across Gemini and Claude models.
+
+**Mistake made:**
+The quota endpoint in `src/config.js` was hardcoded to `https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary`. `daily-cloudcode-pa.googleapis.com` is an internal Google staging/dogfood host where the `Gemini Models` quota group is stripped or routes to unmetered testing buckets, omitting Gemini data entirely and returning only `Claude and GPT models`. This caused Gemini quota to consistently report as missing or `N/A`.
+
+```javascript
+// src/config.js (line 57) — BEFORE (buggy)
+const QUOTA_URL = 'https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary';
+```
+
+**Solution implemented:**
+Inspected the compiled `agy` binary (`strings $(which agy)`) and discovered that production Antigravity uses `https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary`. Updated `QUOTA_URL` to point to production `cloudcode-pa.googleapis.com`. Production immediately returns both `Gemini Models` (`gemini-weekly` and `gemini-5h`) and `Claude and GPT models` with real fractional percentages and reset timestamps.
+
+```javascript
+// src/config.js (lines 57–58) — AFTER (fixed)
+const QUOTA_URL = 'https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary';
+const DAILY_QUOTA_URL = 'https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary';
+```
+
+**Lesson learned:**
+Always inspect and verify network endpoints directly from the active runtime binary rather than assuming staging or dogfood domains (`daily-*`, `autopush-*`) match production payload schemas.
+
+---
