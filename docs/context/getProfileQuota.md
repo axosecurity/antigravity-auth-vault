@@ -190,45 +190,85 @@ async function getProfileQuota(profileDir, force = false) {
 
 ## Root Cause
 
-`getProfileQuota` only called `QUOTA_URL` (`https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary`). The server endpoint stopped returning first-party Gemini model groups in `summary.groups` (returning solely 3P `"Claude and GPT models"`).
-
-Because `summary.groups` omitted Gemini, `result.gemini` remained empty (`Object.keys(result.gemini).length === 0`). The fallback condition at lines 268–271 assumed that an empty Gemini group meant the account had unmetered capacity, marking Gemini as `{ unmetered: true, pct: 100 }`.
+`getProfileQuota` contained flawed branching logic when parsing Gemini live model buckets from `userQuota.buckets` (`tokenType: "WTUS"`):
 
 ```javascript
-// src/quota.js (lines 268–271) — Problematic logic
-  if (Object.keys(result.gemini).length === 0) {
-    result.gemini.weekly = { pct: 100, resets_in: '', unmetered: true };
-    result.gemini['5h'] = { pct: 100, resets_in: '', unmetered: true };
+// src/quota.js (lines 288–305) — Flawed branching logic
+let isWeekly = false;
+if (gemBucket.resetTime) {
+  const diffMs = new Date(gemBucket.resetTime).getTime() - Date.now();
+  if (diffMs > 5.5 * 3600 * 1000) {
+    isWeekly = true;
   }
+}
+
+if (isWeekly) {
+  // Active rate-limit constraint is the Weekly quota cap
+  result.gemini.weekly = { pct, resets_in: resetsIn, unmetered: false };
+  result.gemini['5h'] = { pct, resets_in: '', unmetered: false };
+} else {
+  // Active rate-limit constraint is the 5-Hour rolling window
+  result.gemini['5h'] = { pct, resets_in: resetsIn, unmetered: false };
+  result.gemini.weekly = { pct: 100, resets_in: '', unmetered: false }; // <-- BUG: Hardcoded 100% with no countdown
+}
 ```
 
-This caused `ag-auth switch` to render `[Gem: Unmetered | Cld: 100.0%]` across all accounts, preventing users from seeing remaining Gemini percentage balances (even when accounts were down to 14.0% or 6.0%). Real Gemini quota is metered and delivered via the companion endpoint `https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota` (`userQuota.buckets`).
+1. Whenever an account's Gemini `resetTime` was within 5.5 hours (which occurs on inactive accounts or accounts with minor consumption like `kaziaremon@gmail.com` at 90.9% refilling in 4h 30m), `isWeekly` evaluated to `false`.
+2. In that `else` branch, the code explicitly hardcoded `result.gemini.weekly = { pct: 100, resets_in: '', unmetered: false }`. This wiped the actual remaining percentage and suppressed the reset countdown, displaying a misleading `100.0%` weekly limit with no countdown.
+3. Only on heavily depleted accounts (such as `sishihidul@gmail.com` at 3.8% where `diffMs > 5.5h` with reset in `1d 12h`) did `isWeekly` evaluate to `true`, which made the weekly percentage and reset timer visible solely on the active account being heavily used.
+4. Furthermore, when `isWeekly` was true, the code wiped `result.gemini['5h'].resets_in` to `''`.
 
-Root cause: Google's `retrieveUserQuotaSummary` endpoint omitted first-party Gemini groups, causing `getProfileQuota` to trigger its unmetered fallback and hide live Gemini quota percentages instead of querying `retrieveUserQuota`.
+Root cause: `getProfileQuota` hardcoded `result.gemini.weekly.pct` to 100% and cleared its countdown whenever `resetTime` was within 5.5 hours, making weekly limits and countdowns appear only on heavily depleted active accounts.
 
 ## Solution Implemented
 
-1. Added `USER_QUOTA_URL = 'https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota'` to `src/config.js`.
-2. Updated `getProfileQuota` in `src/quota.js` to execute concurrent `Promise.all` requests across both `QUOTA_URL` (`retrieveUserQuotaSummary`) and `USER_QUOTA_URL` (`retrieveUserQuota`).
-3. Parsed `userQuota.buckets` for real `gemini-*` remaining fractions and reset countdowns, correctly reporting live percentages (e.g. `14.0%`, `6.0%`, `88.8%`) and reset times.
-5. Added distinct window segregation for Gemini models: if reset countdown exceeds 5.5 hours, the constraint is classified as the Weekly limit; if under 5.5 hours, it is classified as the 5-Hour rolling window.
-6. Enhanced `ag-auth quota` to live-refresh all vaulted AI agent profiles on demand, and improved `ag-auth list` and `ag-auth switch` with verbose breakdowns showing both 5h and weekly percentages, progress bars, and countdown reset timers.
+1. Extracted the account-level weekly cycle reset anchor (`weeklyCycleReset`) from `summary.groups` (which contains `3p-weekly` tracking the 7-day rolling tier reset for all Google accounts).
+2. Eliminated the hardcoded `weekly = { pct: 100, resets_in: '' }` fallback. Both `5h` and `weekly` now preserve the true remaining percentage (`pct`) derived directly from `gemBucket.remainingFraction`.
+3. If `diffMs > 5.5 * 3600 * 1000`, the account's tokens are governed by weekly recovery; both `weekly` and `5h` report `pct` and `resetsIn` (e.g. `1d 12h`).
+4. If `diffMs <= 5.5 * 3600 * 1000`, `5h` reports `pct` and immediate reset countdown `resetsIn` (e.g. `4h 30m`), while `weekly` reports `pct` and the account's weekly cycle reset anchor (`weeklyCycleReset`, e.g. `6d 21h`).
+5. Updated `formatRowQuota` in `src/vault.js` to show the active reset countdown when `pct < 100` without hiding or overwriting the weekly quota.
 
 ```javascript
-// src/quota.js
-  let summary = null;
-  let userQuota = null;
-
-  async function fetchQuotaEndpoints(token) {
-    const headers = {
-      'Authorization': `Bearer ${token}`,
-      'User-Agent': 'antigravity/1.0'
-    };
-    const [sRes, uRes] = await Promise.all([
-      postJson(QUOTA_URL, { project: '' }, headers).catch(() => null),
-      postJson(USER_QUOTA_URL, { project: '' }, headers).catch(() => null)
-    ]);
-    return { summary: sRes, userQuota: uRes };
+// src/quota.js (lines 280–310) — Fixed Gemini Quota Normalization
+  let weeklyCycleReset = '';
+  if (summary && Array.isArray(summary.groups)) {
+    for (const g of summary.groups) {
+      if (Array.isArray(g.buckets)) {
+        const wb = g.buckets.find(b => (b.bucketId || b.window || '').toLowerCase().includes('weekly'));
+        if (wb && (wb.resetTime || wb.resetsAt)) {
+          weeklyCycleReset = formatResetCountdown(wb.resetTime || wb.resetsAt);
+          break;
+        }
+      }
+    }
   }
+
+  // Parse live model quota from userQuota (detailed per-model buckets)
+  if (userQuota && Array.isArray(userQuota.buckets)) {
+    const gemBucket = userQuota.buckets.find(b => (b.modelId || '').toLowerCase().includes('gemini'));
+    if (gemBucket && (!result.gemini.weekly || result.gemini.weekly.unmetered)) {
+      const fraction = gemBucket.remainingFraction !== undefined ? gemBucket.remainingFraction : 1;
+      const pct = Math.round(fraction * 1000) / 10;
+      const resetsIn = formatResetCountdown(gemBucket.resetTime || '');
+
+      let isWeeklyExhausted = false;
+      if (gemBucket.resetTime) {
+        const diffMs = new Date(gemBucket.resetTime).getTime() - Date.now();
+        if (diffMs > 5.5 * 3600 * 1000) {
+          isWeeklyExhausted = true;
+        }
+      }
+
+      if (isWeeklyExhausted) {
+        // Governed by weekly recovery
+        result.gemini.weekly = { pct, resets_in: resetsIn, unmetered: false };
+        result.gemini['5h'] = { pct, resets_in: resetsIn, unmetered: false };
+      } else {
+        // 5-Hour rolling window is actively refilling short-term tokens
+        result.gemini['5h'] = { pct, resets_in: resetsIn, unmetered: false };
+        // Weekly limit reflects the true WTUS token percentage and account weekly cycle reset
+        result.gemini.weekly = { pct, resets_in: weeklyCycleReset || resetsIn, unmetered: false };
+      }
+    }
 ```
 
