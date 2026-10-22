@@ -128,7 +128,15 @@ async function cmdCurrent() {
         const c5 = q.claude?.['5h'] || {};
 
         const gwBar = renderProgressBar(gw.pct);
-        const gwText = gw.unmetered ? `${GREEN}Unlimited (Unmetered Standard Tier)${NC}` : `${colorPct(gw.pct)} weekly | ${colorPct(g5.pct)} 5h`;
+        const gwRes = gw.resets_in ? ` ${DIM}(resets: ${gw.resets_in})${NC}` : '';
+        let gwText;
+        if (gw.unmetered) {
+          gwText = `${GREEN}Unlimited (Unmetered Standard Tier)${NC}`;
+        } else if (g5.pct !== undefined && g5.pct !== gw.pct) {
+          gwText = `${colorPct(gw.pct)} weekly${gwRes} | ${colorPct(g5.pct)} 5h`;
+        } else {
+          gwText = `${colorPct(gw.pct)}${gwRes}`;
+        }
         console.log(`  Gemini: ${gwBar} ${gwText}`);
 
         const cwBar = renderProgressBar(cw.pct);
@@ -437,7 +445,15 @@ async function cmdList(refresh = false) {
         const c5 = q.claude?.['5h'] || {};
 
         const gwBar = renderProgressBar(gw.pct);
-        const gwText = gw.unmetered ? `${GREEN}Unlimited (Unmetered Standard Tier)${NC}` : `${colorPct(gw.pct)} weekly | ${colorPct(g5.pct)} 5h`;
+        const gwRes = gw.resets_in ? ` ${DIM}(resets: ${gw.resets_in})${NC}` : '';
+        let gwText;
+        if (gw.unmetered) {
+          gwText = `${GREEN}Unlimited (Unmetered Standard Tier)${NC}`;
+        } else if (g5.pct !== undefined && g5.pct !== gw.pct) {
+          gwText = `${colorPct(gw.pct)} weekly${gwRes} | ${colorPct(g5.pct)} 5h`;
+        } else {
+          gwText = `${colorPct(gw.pct)}${gwRes}`;
+        }
         console.log(`      Gemini:  ${gwBar} ${gwText}`);
 
         const cwBar = renderProgressBar(cw.pct);

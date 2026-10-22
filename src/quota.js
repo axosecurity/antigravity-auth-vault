@@ -6,7 +6,7 @@
 const fs = require('fs');
 const path = require('path');
 const https = require('https');
-const { CLIENT_ID, CLIENT_SECRET, TOKEN_URL, QUOTA_URL, CACHE_TTL_MS, GREEN, YELLOW, RED, CYAN, BOLD, DIM, NC } = require('./config');
+const { CLIENT_ID, CLIENT_SECRET, TOKEN_URL, QUOTA_URL, USER_QUOTA_URL, CACHE_TTL_MS, GREEN, YELLOW, RED, CYAN, BOLD, DIM, NC } = require('./config');
 const { keyringRead } = require('./keyring');
 
 function postJson(url, data, headers = {}) {
@@ -179,16 +179,29 @@ async function getProfileQuota(profileDir, force = false) {
   const refreshToken = tokObj.refresh_token || tokenData.refresh_token;
 
   let summary = null;
+  let userQuota = null;
+
+  async function fetchQuotaEndpoints(token) {
+    const headers = {
+      'Authorization': `Bearer ${token}`,
+      'User-Agent': 'antigravity/1.0'
+    };
+    const [sRes, uRes] = await Promise.all([
+      postJson(QUOTA_URL, { project: '' }, headers).catch(() => null),
+      postJson(USER_QUOTA_URL, { project: '' }, headers).catch(() => null)
+    ]);
+    return { summary: sRes, userQuota: uRes };
+  }
+
   if (accessToken) {
     try {
-      summary = await postJson(QUOTA_URL, { project: '' }, {
-        'Authorization': `Bearer ${accessToken}`,
-        'User-Agent': 'antigravity/1.0'
-      });
+      const res = await fetchQuotaEndpoints(accessToken);
+      summary = res.summary;
+      userQuota = res.userQuota;
     } catch (_) {}
   }
 
-  if (!summary && refreshToken) {
+  if (!summary && !userQuota && refreshToken) {
     try {
       const refreshed = await refreshAccessToken(refreshToken);
       accessToken = refreshed.access_token || refreshed;
@@ -201,15 +214,14 @@ async function getProfileQuota(profileDir, force = false) {
           if (refreshed.id_token) tokenData.id_token = refreshed.id_token;
         }
         fs.writeFileSync(tokenFile, JSON.stringify(tokenData, null, 2), 'utf8');
-        summary = await postJson(QUOTA_URL, { project: '' }, {
-          'Authorization': `Bearer ${accessToken}`,
-          'User-Agent': 'antigravity/1.0'
-        });
+        const res = await fetchQuotaEndpoints(accessToken);
+        summary = res.summary;
+        userQuota = res.userQuota;
       }
     } catch (_) {}
   }
 
-  if (!summary) return null;
+  if (!summary && !userQuota) return null;
 
   const result = {
     cached_at: new Date().toISOString(),
@@ -217,7 +229,7 @@ async function getProfileQuota(profileDir, force = false) {
     claude: {}
   };
 
-  if (Array.isArray(summary.groups)) {
+  if (summary && Array.isArray(summary.groups)) {
     for (const g of summary.groups) {
       const gName = (g.displayName || '').toLowerCase();
       const isGemini = gName.includes('gemini');
@@ -240,7 +252,7 @@ async function getProfileQuota(profileDir, force = false) {
         }
       }
     }
-  } else if (Array.isArray(summary.userQuotaBuckets)) {
+  } else if (summary && Array.isArray(summary.userQuotaBuckets)) {
     for (const b of summary.userQuotaBuckets) {
       const name = (b.name || '').toLowerCase();
       const fraction = b.fractionalRemaining !== undefined ? b.fractionalRemaining : 0;
@@ -264,7 +276,30 @@ async function getProfileQuota(profileDir, force = false) {
     }
   }
 
-  // If Gemini has no explicit rate-limit buckets returned, it runs on the Unmetered Standard Tier
+  // Parse live model quota from userQuota (detailed per-model buckets)
+  if (userQuota && Array.isArray(userQuota.buckets)) {
+    // Check for Gemini buckets
+    const gemBucket = userQuota.buckets.find(b => (b.modelId || '').toLowerCase().includes('gemini'));
+    if (gemBucket && (!result.gemini.weekly || result.gemini.weekly.unmetered)) {
+      const fraction = gemBucket.remainingFraction !== undefined ? gemBucket.remainingFraction : 1;
+      const pct = Math.round(fraction * 1000) / 10;
+      const resetsIn = formatResetCountdown(gemBucket.resetTime || '');
+      result.gemini.weekly = { pct, resets_in: resetsIn, unmetered: false };
+      result.gemini['5h'] = { pct, resets_in: resetsIn, unmetered: false };
+    }
+
+    // Fallback for Claude if summary didn't return Claude
+    const cldBucket = userQuota.buckets.find(b => (b.modelId || '').toLowerCase().includes('claude'));
+    if (cldBucket && !result.claude.weekly) {
+      const fraction = cldBucket.remainingFraction !== undefined ? cldBucket.remainingFraction : 1;
+      const pct = Math.round(fraction * 1000) / 10;
+      const resetsIn = formatResetCountdown(cldBucket.resetTime || '');
+      result.claude.weekly = { pct, resets_in: resetsIn };
+      result.claude['5h'] = { pct, resets_in: resetsIn };
+    }
+  }
+
+  // If Gemini has no explicit rate-limit buckets returned anywhere, fallback to unmetered
   if (Object.keys(result.gemini).length === 0) {
     result.gemini.weekly = { pct: 100, resets_in: '', unmetered: true };
     result.gemini['5h'] = { pct: 100, resets_in: '', unmetered: true };
