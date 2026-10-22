@@ -133,3 +133,55 @@ const DAILY_QUOTA_URL = 'https://daily-cloudcode-pa.googleapis.com/v1internal:re
 Always inspect and verify network endpoints directly from the active runtime binary rather than assuming staging or dogfood domains (`daily-*`, `autopush-*`) match production payload schemas.
 
 ---
+
+## getProfileQuota — src/quota.js
+
+**Date:** 2026-10-22
+
+**Function info:**
+Queries, calculates, normalizes, and caches real-time AI quota usage across Google Antigravity (Gemini Models, Claude & GPT 3P models) and OpenAI Codex subscription tiers for any specified profile directory.
+
+**Mistake made:**
+Google's `retrieveUserQuotaSummary` endpoint omitted first-party Gemini groups from its payload, returning solely third-party `Claude and GPT models`. Because `result.gemini` remained empty, `getProfileQuota` triggered an unmetered fallback that assigned `100% (unmetered)` to Gemini across all profiles, hiding actual Gemini consumption and preventing users from identifying depleted accounts in `ag-auth switch`.
+
+```javascript
+// src/quota.js (lines 268–271) — BEFORE (buggy)
+  if (Object.keys(result.gemini).length === 0) {
+    result.gemini.weekly = { pct: 100, resets_in: '', unmetered: true };
+    result.gemini['5h'] = { pct: 100, resets_in: '', unmetered: true };
+  }
+```
+
+**Solution implemented:**
+Added `USER_QUOTA_URL = 'https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota'` to query the detailed per-model quota endpoint concurrently alongside `QUOTA_URL` via `Promise.all`. Parsed `userQuota.buckets` for real `gemini-*` remaining fractions and reset countdowns, accurately reporting live percentages (such as 14.0%, 6.0%, and 88.8%) and countdown timers in `ag-auth switch` and `ag-auth list`.
+
+```javascript
+// src/quota.js (lines 184–268) — AFTER (fixed)
+  async function fetchQuotaEndpoints(token) {
+    const headers = {
+      'Authorization': `Bearer ${token}`,
+      'User-Agent': 'antigravity/1.0'
+    };
+    const [sRes, uRes] = await Promise.all([
+      postJson(QUOTA_URL, { project: '' }, headers).catch(() => null),
+      postJson(USER_QUOTA_URL, { project: '' }, headers).catch(() => null)
+    ]);
+    return { summary: sRes, userQuota: uRes };
+  }
+  // ...
+  if (userQuota && Array.isArray(userQuota.buckets)) {
+    const gemBucket = userQuota.buckets.find(b => (b.modelId || '').toLowerCase().includes('gemini'));
+    if (gemBucket && (!result.gemini.weekly || result.gemini.weekly.unmetered)) {
+      const fraction = gemBucket.remainingFraction !== undefined ? gemBucket.remainingFraction : 1;
+      const pct = Math.round(fraction * 1000) / 10;
+      const resetsIn = formatResetCountdown(gemBucket.resetTime || '');
+      result.gemini.weekly = { pct, resets_in: resetsIn, unmetered: false };
+      result.gemini['5h'] = { pct, resets_in: resetsIn, unmetered: false };
+    }
+  }
+```
+
+**Lesson learned:**
+Never assume an aggregate summary endpoint contains all resource metrics; verify against granular per-model endpoints when critical metrics are missing from summary responses.
+
+---

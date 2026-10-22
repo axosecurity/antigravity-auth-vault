@@ -187,3 +187,47 @@ async function getProfileQuota(profileDir, force = false) {
   return result;
 }
 ```
+
+## Root Cause
+
+`getProfileQuota` only called `QUOTA_URL` (`https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary`). The server endpoint stopped returning first-party Gemini model groups in `summary.groups` (returning solely 3P `"Claude and GPT models"`).
+
+Because `summary.groups` omitted Gemini, `result.gemini` remained empty (`Object.keys(result.gemini).length === 0`). The fallback condition at lines 268–271 assumed that an empty Gemini group meant the account had unmetered capacity, marking Gemini as `{ unmetered: true, pct: 100 }`.
+
+```javascript
+// src/quota.js (lines 268–271) — Problematic logic
+  if (Object.keys(result.gemini).length === 0) {
+    result.gemini.weekly = { pct: 100, resets_in: '', unmetered: true };
+    result.gemini['5h'] = { pct: 100, resets_in: '', unmetered: true };
+  }
+```
+
+This caused `ag-auth switch` to render `[Gem: Unmetered | Cld: 100.0%]` across all accounts, preventing users from seeing remaining Gemini percentage balances (even when accounts were down to 14.0% or 6.0%). Real Gemini quota is metered and delivered via the companion endpoint `https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota` (`userQuota.buckets`).
+
+Root cause: Google's `retrieveUserQuotaSummary` endpoint omitted first-party Gemini groups, causing `getProfileQuota` to trigger its unmetered fallback and hide live Gemini quota percentages instead of querying `retrieveUserQuota`.
+
+## Solution Implemented
+
+1. Added `USER_QUOTA_URL = 'https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota'` to `src/config.js`.
+2. Updated `getProfileQuota` in `src/quota.js` to execute concurrent `Promise.all` requests across both `QUOTA_URL` (`retrieveUserQuotaSummary`) and `USER_QUOTA_URL` (`retrieveUserQuota`).
+3. Parsed `userQuota.buckets` for real `gemini-*` remaining fractions and reset countdowns, correctly reporting live percentages (e.g. `14.0%`, `6.0%`, `88.8%`) and reset times.
+4. Updated terminal presentation in `src/vault.js` to show countdown timers when metered and render exact percentages in the interactive switcher.
+
+```javascript
+// src/quota.js
+  let summary = null;
+  let userQuota = null;
+
+  async function fetchQuotaEndpoints(token) {
+    const headers = {
+      'Authorization': `Bearer ${token}`,
+      'User-Agent': 'antigravity/1.0'
+    };
+    const [sRes, uRes] = await Promise.all([
+      postJson(QUOTA_URL, { project: '' }, headers).catch(() => null),
+      postJson(USER_QUOTA_URL, { project: '' }, headers).catch(() => null)
+    ]);
+    return { summary: sRes, userQuota: uRes };
+  }
+```
+
