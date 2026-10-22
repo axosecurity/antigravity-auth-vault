@@ -284,8 +284,24 @@ async function getProfileQuota(profileDir, force = false) {
       const fraction = gemBucket.remainingFraction !== undefined ? gemBucket.remainingFraction : 1;
       const pct = Math.round(fraction * 1000) / 10;
       const resetsIn = formatResetCountdown(gemBucket.resetTime || '');
-      result.gemini.weekly = { pct, resets_in: resetsIn, unmetered: false };
-      result.gemini['5h'] = { pct, resets_in: resetsIn, unmetered: false };
+
+      let isWeekly = false;
+      if (gemBucket.resetTime) {
+        const diffMs = new Date(gemBucket.resetTime).getTime() - Date.now();
+        if (diffMs > 5.5 * 3600 * 1000) {
+          isWeekly = true;
+        }
+      }
+
+      if (isWeekly) {
+        // Active rate-limit constraint is the Weekly quota cap
+        result.gemini.weekly = { pct, resets_in: resetsIn, unmetered: false };
+        result.gemini['5h'] = { pct, resets_in: '', unmetered: false };
+      } else {
+        // Active rate-limit constraint is the 5-Hour rolling window
+        result.gemini['5h'] = { pct, resets_in: resetsIn, unmetered: false };
+        result.gemini.weekly = { pct: 100, resets_in: '', unmetered: false };
+      }
     }
 
     // Fallback for Claude if summary didn't return Claude

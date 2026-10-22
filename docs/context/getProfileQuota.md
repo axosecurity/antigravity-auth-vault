@@ -211,7 +211,8 @@ Root cause: Google's `retrieveUserQuotaSummary` endpoint omitted first-party Gem
 1. Added `USER_QUOTA_URL = 'https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota'` to `src/config.js`.
 2. Updated `getProfileQuota` in `src/quota.js` to execute concurrent `Promise.all` requests across both `QUOTA_URL` (`retrieveUserQuotaSummary`) and `USER_QUOTA_URL` (`retrieveUserQuota`).
 3. Parsed `userQuota.buckets` for real `gemini-*` remaining fractions and reset countdowns, correctly reporting live percentages (e.g. `14.0%`, `6.0%`, `88.8%`) and reset times.
-4. Updated terminal presentation in `src/vault.js` to show countdown timers when metered and render exact percentages in the interactive switcher.
+5. Added distinct window segregation for Gemini models: if reset countdown exceeds 5.5 hours, the constraint is classified as the Weekly limit; if under 5.5 hours, it is classified as the 5-Hour rolling window.
+6. Enhanced `ag-auth quota` to live-refresh all vaulted AI agent profiles on demand, and improved `ag-auth list` and `ag-auth switch` with verbose breakdowns showing both 5h and weekly percentages, progress bars, and countdown reset timers.
 
 ```javascript
 // src/quota.js

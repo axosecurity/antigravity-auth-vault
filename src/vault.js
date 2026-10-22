@@ -127,21 +127,17 @@ async function cmdCurrent() {
         const cw = q.claude?.weekly || {};
         const c5 = q.claude?.['5h'] || {};
 
-        const gwBar = renderProgressBar(gw.pct);
-        const gwRes = gw.resets_in ? ` ${DIM}(resets: ${gw.resets_in})${NC}` : '';
-        let gwText;
         if (gw.unmetered) {
-          gwText = `${GREEN}Unlimited (Unmetered Standard Tier)${NC}`;
-        } else if (g5.pct !== undefined && g5.pct !== gw.pct) {
-          gwText = `${colorPct(gw.pct)} weekly${gwRes} | ${colorPct(g5.pct)} 5h`;
+          console.log(`  Gemini: ${renderProgressBar(100, 8)} ${GREEN}Unlimited (Unmetered Standard Tier)${NC}`);
         } else {
-          gwText = `${colorPct(gw.pct)}${gwRes}`;
+          const g5Res = g5.resets_in ? ` ${DIM}(resets: ${g5.resets_in})${NC}` : '';
+          const gwRes = gw.resets_in ? ` ${DIM}(resets: ${gw.resets_in})${NC}` : '';
+          console.log(`  Gemini: 5h: ${renderProgressBar(g5.pct, 8)} ${colorPct(g5.pct)}${g5Res} | Wk: ${renderProgressBar(gw.pct, 8)} ${colorPct(gw.pct)}${gwRes}`);
         }
-        console.log(`  Gemini: ${gwBar} ${gwText}`);
 
-        const cwBar = renderProgressBar(cw.pct);
+        const c5Res = c5.resets_in ? ` ${DIM}(resets: ${c5.resets_in})${NC}` : '';
         const cwRes = cw.resets_in ? ` ${DIM}(resets: ${cw.resets_in})${NC}` : '';
-        console.log(`  Claude: ${cwBar} ${colorPct(cw.pct)} weekly${cwRes} | ${colorPct(c5.pct)} 5h`);
+        console.log(`  Claude: 5h: ${renderProgressBar(c5.pct, 8)} ${colorPct(c5.pct)}${c5Res} | Wk: ${renderProgressBar(cw.pct, 8)} ${colorPct(cw.pct)}${cwRes}`);
       }
     }
   }
@@ -444,21 +440,17 @@ async function cmdList(refresh = false) {
         const cw = q.claude?.weekly || {};
         const c5 = q.claude?.['5h'] || {};
 
-        const gwBar = renderProgressBar(gw.pct);
-        const gwRes = gw.resets_in ? ` ${DIM}(resets: ${gw.resets_in})${NC}` : '';
-        let gwText;
         if (gw.unmetered) {
-          gwText = `${GREEN}Unlimited (Unmetered Standard Tier)${NC}`;
-        } else if (g5.pct !== undefined && g5.pct !== gw.pct) {
-          gwText = `${colorPct(gw.pct)} weekly${gwRes} | ${colorPct(g5.pct)} 5h`;
+          console.log(`      Gemini:  ${renderProgressBar(100, 8)} ${GREEN}Unlimited (Unmetered Standard Tier)${NC}`);
         } else {
-          gwText = `${colorPct(gw.pct)}${gwRes}`;
+          const g5Res = g5.resets_in ? ` ${DIM}(resets: ${g5.resets_in})${NC}` : '';
+          const gwRes = gw.resets_in ? ` ${DIM}(resets: ${gw.resets_in})${NC}` : '';
+          console.log(`      Gemini:  5h: ${renderProgressBar(g5.pct, 8)} ${colorPct(g5.pct)}${g5Res} | Wk: ${renderProgressBar(gw.pct, 8)} ${colorPct(gw.pct)}${gwRes}`);
         }
-        console.log(`      Gemini:  ${gwBar} ${gwText}`);
 
-        const cwBar = renderProgressBar(cw.pct);
+        const c5Res = c5.resets_in ? ` ${DIM}(resets: ${c5.resets_in})${NC}` : '';
         const cwRes = cw.resets_in ? ` ${DIM}(resets: ${cw.resets_in})${NC}` : '';
-        console.log(`      Claude:  ${cwBar} ${colorPct(cw.pct)} weekly${cwRes} | ${colorPct(c5.pct)} 5h`);
+        console.log(`      Claude:  5h: ${renderProgressBar(c5.pct, 8)} ${colorPct(c5.pct)}${c5Res} | Wk: ${renderProgressBar(cw.pct, 8)} ${colorPct(cw.pct)}${cwRes}`);
       }
 
       if (q.codex) {
@@ -477,28 +469,17 @@ async function cmdList(refresh = false) {
   }
 }
 
-async function cmdQuota(targetProfile, refresh = false) {
-  ensureVaultDirs();
-  const activeAgEmail = getTokenEmail(ACTIVE_TOKEN);
-  const activeCodexAuth = readCodexAuth();
-  const activeCodexEmail = getCodexEmail(activeCodexAuth);
-  const target = targetProfile || activeAgEmail || activeCodexEmail;
+function printProfileQuotaCard(p, q, pType, isActive, indent = '  ') {
+  const activeBadge = isActive ? ` ${GREEN}${BOLD}[ACTIVE]${NC}` : '';
+  let badge = '';
+  if (pType === 'dual') badge = `${MAGENTA}[Dual: Antigravity + Codex]${NC}`;
+  else if (pType === 'codex') badge = `${CYAN}[OpenAI Codex]${NC}`;
+  else badge = `${BLUE}[Antigravity]${NC}`;
 
-  if (!target) {
-    console.log(`${YELLOW}No active profile found.${NC} Specify an account: ag-auth quota <email>`);
-    return;
-  }
+  console.log(`${indent}${BOLD}${CYAN}▶ ${p}${NC}${activeBadge} ${badge}`);
 
-  const pdir = path.join(PROFILES_DIR, target);
-  if (!fs.existsSync(pdir)) {
-    console.log(`${RED}Error:${NC} Profile '${target}' not found in vault.`);
-    return;
-  }
-
-  console.log(`${BOLD}${CYAN}=== AI Quota & Plan Dashboard: ${target} ===${NC}\n`);
-  const q = await getProfileQuota(pdir, refresh);
   if (!q) {
-    console.log(`${YELLOW}Could not retrieve quota for ${target}.${NC}`);
+    console.log(`${indent}    ${YELLOW}Could not retrieve quota details.${NC}\n`);
     return;
   }
 
@@ -508,27 +489,74 @@ async function cmdQuota(targetProfile, refresh = false) {
     const cw = q.claude?.weekly || {};
     const c5 = q.claude?.['5h'] || {};
 
-    console.log(`  ${BOLD}${BLUE}• Google Gemini Models (Flash, Pro):${NC}`);
+    console.log(`${indent}    ${BOLD}${BLUE}• Google Gemini Models:${NC}`);
     if (gw.unmetered) {
-      console.log(`      Status:        ${GREEN}${BOLD}Unlimited Capacity${NC} (Unmetered Standard Tier)`);
+      console.log(`${indent}        Status:        ${GREEN}${BOLD}Unlimited Capacity${NC} (Unmetered Standard Tier)`);
     } else {
-      console.log(`      Weekly Limit:  ${renderProgressBar(gw.pct, 12)} ${colorPct(gw.pct)} ${gw.resets_in ? `(${gw.resets_in})` : ''}`);
-      console.log(`      5-Hour Window: ${renderProgressBar(g5.pct, 12)} ${colorPct(g5.pct)} ${g5.resets_in ? `(${g5.resets_in})` : ''}`);
+      const g5Res = g5.resets_in ? ` (resets: ${g5.resets_in})` : '';
+      const gwRes = gw.resets_in ? ` (resets: ${gw.resets_in})` : '';
+      console.log(`${indent}        5-Hour Window: ${renderProgressBar(g5.pct, 12)} ${colorPct(g5.pct)}${g5Res}`);
+      console.log(`${indent}        Weekly Limit:  ${renderProgressBar(gw.pct, 12)} ${colorPct(gw.pct)}${gwRes}`);
     }
 
-    console.log(`\n  ${BOLD}${MAGENTA}• Claude & GPT Models (Sonnet, Opus, GPT-OSS):${NC}`);
-    console.log(`      Weekly Limit:  ${renderProgressBar(cw.pct, 12)} ${colorPct(cw.pct)} ${cw.resets_in ? `(${cw.resets_in})` : ''}`);
-    console.log(`      5-Hour Window: ${renderProgressBar(c5.pct, 12)} ${colorPct(c5.pct)} ${c5.resets_in ? `(${c5.resets_in})` : ''}\n`);
+    console.log(`${indent}    ${BOLD}${MAGENTA}• Claude & GPT Models (Code / Reasoning):${NC}`);
+    const c5Res = c5.resets_in ? ` (resets: ${c5.resets_in})` : '';
+    const cwRes = cw.resets_in ? ` (resets: ${cw.resets_in})` : '';
+    console.log(`${indent}        5-Hour Window: ${renderProgressBar(c5.pct, 12)} ${colorPct(c5.pct)}${c5Res}`);
+    console.log(`${indent}        Weekly Limit:  ${renderProgressBar(cw.pct, 12)} ${colorPct(cw.pct)}${cwRes}`);
   }
 
   if (q.codex) {
     const cdx = q.codex;
-    console.log(`  ${BOLD}${CYAN}• OpenAI Codex Plan & Identity:${NC}`);
-    console.log(`      Plan Tier:     ${BOLD}${GREEN}${cdx.plan_type.toUpperCase()}${NC}`);
-    console.log(`      Auth Mode:     ${cdx.auth_mode}`);
-    if (cdx.organization) console.log(`      Organization:  ${cdx.organization}`);
-    if (cdx.account_id) console.log(`      Account ID:    ${cdx.account_id}`);
-    if (cdx.token_expiry) console.log(`      Token Expiry:  ${cdx.token_expiry}\n`);
+    console.log(`${indent}    ${BOLD}${CYAN}• OpenAI Codex Session:${NC}`);
+    console.log(`${indent}        Plan Tier:     ${BOLD}${GREEN}${cdx.plan_type.toUpperCase()}${NC}`);
+    console.log(`${indent}        Auth Mode:     ${cdx.auth_mode}`);
+    if (cdx.organization) console.log(`${indent}        Organization:  ${cdx.organization}`);
+    if (cdx.account_id) console.log(`${indent}        Account ID:    ${cdx.account_id}`);
+    if (cdx.token_expiry) console.log(`${indent}        Token Expiry:  ${cdx.token_expiry}`);
+  }
+}
+
+async function cmdQuota(targetProfile, refresh = true) {
+  ensureVaultDirs();
+  const activeAgEmail = getTokenEmail(ACTIVE_TOKEN);
+  const activeCodexAuth = readCodexAuth();
+  const activeCodexEmail = getCodexEmail(activeCodexAuth);
+
+  const profiles = getVaultProfiles();
+  if (profiles.length === 0) {
+    console.log(`${YELLOW}No profiles found in vault.${NC}`);
+    return;
+  }
+
+  // If a specific profile was requested
+  if (targetProfile && targetProfile !== 'all') {
+    const pdir = path.join(PROFILES_DIR, targetProfile);
+    if (!fs.existsSync(pdir)) {
+      console.log(`${RED}Error:${NC} Profile '${targetProfile}' not found in vault.`);
+      return;
+    }
+    const pType = getProfileType(targetProfile);
+    const isActive = (targetProfile === activeAgEmail || targetProfile === activeCodexEmail);
+    console.log(`${BOLD}${CYAN}=== AI Quota & Plan Dashboard ===${NC}`);
+    console.log(`${DIM}Fetching fresh live limits from Google Cloud Code & OpenAI...${NC}\n`);
+    const q = await getProfileQuota(pdir, refresh);
+    printProfileQuotaCard(targetProfile, q, pType, isActive, '  ');
+    console.log('');
+    return;
+  }
+
+  // Otherwise, refresh and display ALL AI agent profiles in vault
+  console.log(`${BOLD}${CYAN}=== Live AI Quotas & Limits (All Agents Freshly Updated) ===${NC}`);
+  console.log(`${DIM}Connecting to Google Cloud Code PA & OpenAI to update latest limits across all agents...${NC}\n`);
+
+  for (const p of profiles) {
+    const pdir = path.join(PROFILES_DIR, p);
+    const pType = getProfileType(p);
+    const isActive = (p === activeAgEmail || p === activeCodexEmail);
+    const q = await getProfileQuota(pdir, refresh);
+    printProfileQuotaCard(p, q, pType, isActive, '  ');
+    console.log('');
   }
 }
 
@@ -624,11 +652,30 @@ async function pickInteractive() {
 
     if (q) {
       if (q.gemini || q.claude) {
-        const gp = q.gemini?.weekly?.unmetered ? 'Unmetered' : colorPct(q.gemini?.weekly?.pct);
-        const cp = colorPct(q.claude?.weekly?.pct);
-        tag = `[Gem: ${gp} | Cld: ${cp}]`;
+        const parts = [];
+        if (q.gemini) {
+          const g5 = q.gemini['5h'];
+          const gw = q.gemini.weekly;
+          if (gw?.unmetered) {
+            parts.push('Gem: Unmetered');
+          } else {
+            const isWk = gw?.resets_in && (!g5?.resets_in || gw.resets_in.includes('d'));
+            const gemPct = isWk ? colorPct(gw.pct) : colorPct(g5?.pct ?? gw.pct);
+            const gemRes = isWk ? `wk:${gw.resets_in}` : (g5?.resets_in ? `5h:${g5.resets_in}` : '');
+            parts.push(`Gem: ${gemPct}${gemRes ? ` (${gemRes})` : ''}`);
+          }
+        }
+        if (q.claude) {
+          const c5 = q.claude['5h'];
+          const cw = q.claude.weekly;
+          const cldWk = colorPct(cw?.pct);
+          const cld5h = colorPct(c5?.pct);
+          const cldRes = cw?.resets_in && cw.pct < 100 ? ` (${cw.resets_in})` : (c5?.resets_in && c5.pct < 100 ? ` (${c5.resets_in})` : '');
+          parts.push(`Cld 5h:${cld5h} Wk:${cldWk}${cldRes}`);
+        }
+        tag = `[${parts.join(' | ')}]`;
       } else if (q.codex?.plan_type) {
-        tag = `[Plan: ${q.codex.plan_type.toUpperCase()}]`;
+        tag = `[Plan: ${q.codex.plan_type.toUpperCase()} | Mode: ${q.codex.auth_mode}]`;
       }
     }
 

@@ -45,11 +45,12 @@ With **Antigravity Auth Vault**, you can save unlimited Google accounts into an 
 
 ```text
 $ @
-Select Universal Antigravity Account (↑/↓ arrow keys, Enter to switch, 1-9 direct, q to cancel):
-  ▶ [1] kaziaremon@gmail.com   [Gem:  82.3% | Cld: 100.0%] [CURRENT ACTIVE] (CLI, IDE, App)
-    [2] work-lead@company.com  [Gem:  99.1% | Cld: 100.0%]  (CLI, IDE, App)
-    [3] team-ai-pool@gmail.com [Gem:  84.2% | Cld: 100.0%]  (CLI)
-    [4] sandbox-dev@gmail.com  [Gem:  92.5% | Cld:  63.1%]  (CLI)
+Select Vault Account (↑/↓ arrow keys, Enter to switch, 1-9 direct, q to cancel):
+  ▶ [1] kaziaremon@gmail.com (Antigravity)  [Gem:  93.2% (5h:4h 51m) | Cld 5h:100.0% Wk: 64.1% (2h 12m)] [ACTIVE]
+    [2] work-lead@company.com (Antigravity)  [Gem: 100.0% | Cld 5h:100.0% Wk:100.0%]
+    [3] team-ai-pool@gmail.com (Antigravity) [Gem:  83.0% (5h:2h 53m) | Cld 5h:100.0% Wk:100.0%]
+    [4] sandbox-dev@gmail.com (Antigravity)  [Gem:  14.0% (wk:1d 17h) | Cld 5h:100.0% Wk:100.0%]
+    [5] tamin-dev@company.com (Codex)        [Plan: PLUS | Mode: chatgpt] [ACTIVE]
 ```
 
 ---
@@ -186,22 +187,38 @@ ag-auth switch second-account@gmail.com
 ```
 
 ### 4. Check Your AI Quota Limits
-View weekly and 5-hour rolling limits for Gemini and Claude models:
+View live 5-hour rolling windows and weekly limits across all your AI agents:
 ```bash
 ag-auth quota
+# Or inspect a single agent:
+ag-auth quota kaziaremon@gmail.com
 ```
 
 Output:
 ```text
-=== Antigravity AI Quota Dashboard: kaziaremon@gmail.com ===
+=== Live AI Quotas & Limits (All Agents Freshly Updated) ===
+Connecting to Google Cloud Code PA & OpenAI to update latest limits across all agents...
 
-  • Gemini Models (Flash, Pro):
-      Weekly Limit:  [████████░░░░]  82.3% (3d 20h)
-      5-Hour Window: [██████░░░░░░]  52.9% (2h 7m)
+  ▶ kaziaremon@gmail.com [ACTIVE] [Antigravity]
+      • Google Gemini Models:
+          5-Hour Window: [███████████░]  93.2% (resets: 4h 51m)
+          Weekly Limit:  [████████████] 100.0%
+      • Claude & GPT Models (Code / Reasoning):
+          5-Hour Window: [████████████] 100.0% (resets: 4h 59m)
+          Weekly Limit:  [████████░░░░]  64.1% (resets: 2h 12m)
 
-  • Claude & GPT Models (Sonnet, Opus, GPT-OSS):
-      Weekly Limit:  [████████████] 100.0% (6d 23h)
-      5-Hour Window: [████████████] 100.0% (4h 59m)
+  ▶ kulsumaakter722@gmail.com [Antigravity]
+      • Google Gemini Models:
+          5-Hour Window: [██░░░░░░░░░░]  14.0%
+          Weekly Limit:  [██░░░░░░░░░░]  14.0% (resets: 1d 17h)
+      • Claude & GPT Models (Code / Reasoning):
+          5-Hour Window: [████████████] 100.0% (resets: 4h 59m)
+          Weekly Limit:  [████████████] 100.0% (resets: 6d 23h)
+
+  ▶ tamin546495765@gmail.com [ACTIVE] [OpenAI Codex]
+      • OpenAI Codex Session:
+          Plan Tier:     PLUS
+          Auth Mode:     chatgpt
 ```
 
 ---
@@ -344,8 +361,8 @@ Antigravity Auth Vault is designed from the ground up to prevent secret leaks:
 | `ag-auth switch <email> -s app` | Switch only Antigravity 2.0 Desktop |
 | `ag-auth switch <email> -s cli` | Switch only Antigravity CLI |
 | `codex-auth switch [email]` | Dedicated OpenAI Codex switcher |
-| `ag-auth quota [--refresh]` | Display detailed AI quota & plan dashboard |
-| `ag-auth list [--refresh]` | List all vaulted profiles with inline quotas and plan badges |
+| `ag-auth quota [email]` | Live-refresh and display comprehensive 5h & weekly quota dashboard for all AI agents (or single account) |
+| `ag-auth list [--refresh]` | Verbose breakdown of all vaulted profiles with 5-hour and weekly limits, progress bars, and countdowns |
 | `ag-auth current` | Show active Antigravity & Codex sessions, runtimes, and limits |
 | `ag-auth save [name]` | Save current session (auto-captures Antigravity + Codex) |
 | `ag-auth save [name] -t codex` | Save only current OpenAI Codex session |

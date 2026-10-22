@@ -73,7 +73,7 @@ async function cmdInteractive() {
     } else if (c === '2') {
       await cmdSwitch();
     } else if (c === '3') {
-      await cmdQuota();
+      await cmdQuota('', true);
     } else if (c === '4') {
       await cmdList();
     } else if (c === '5') {
@@ -190,7 +190,7 @@ async function main() {
     const refresh = filteredArgs.includes('--refresh') || filteredArgs.includes('-r');
     await cmdList(refresh);
   } else if (cmd === 'quota' || cmd === 'limits') {
-    const refresh = filteredArgs.includes('--refresh') || filteredArgs.includes('-r');
+    const refresh = !filteredArgs.includes('--cached');
     const target = filteredArgs.slice(1).find(a => !a.startsWith('-')) || '';
     await cmdQuota(target, refresh);
   } else if (cmd === 'save' || cmd === 'archive') {
