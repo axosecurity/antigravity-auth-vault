@@ -46,11 +46,17 @@ With **Antigravity Auth Vault**, you can save unlimited Google accounts into an 
 ```text
 $ @
 Select Vault Account (↑/↓ arrow keys, Enter to switch, 1-9 direct, q to cancel):
-  ▶ [1] kaziaremon@gmail.com (Antigravity)  [Gem:  93.2% (5h:4h 51m) | Cld 5h:100.0% Wk: 64.1% (2h 12m)] [ACTIVE]
-    [2] work-lead@company.com (Antigravity)  [Gem: 100.0% | Cld 5h:100.0% Wk:100.0%]
-    [3] team-ai-pool@gmail.com (Antigravity) [Gem:  83.0% (5h:2h 53m) | Cld 5h:100.0% Wk:100.0%]
-    [4] sandbox-dev@gmail.com (Antigravity)  [Gem:  14.0% (wk:1d 17h) | Cld 5h:100.0% Wk:100.0%]
-    [5] tamin-dev@company.com (Codex)        [Plan: PLUS | Mode: chatgpt] [ACTIVE]
+    [1] forriskywebsite738@gmail.com  Gem:  87.1% (2h 53m)  Cld: 100.0%
+  ▶ [2] kaziaremon@gmail.com          Gem:  82.1% (4h 34m)  Cld:  64.1% (1h 55m)
+    [3] kulsumaakter722@gmail.com     Gem:  14.0% (1d 17h)  Cld: 100.0%
+    [4] sishihidul@gmail.com          Gem:   5.2% (1d 17h)  Cld: 100.0%
+    [5] sjsojib722@gmail.com          Gem:  83.0% (2h 36m)  Cld: 100.0%  [ACTIVE]
+    [6] tamin546495765@gmail.com      Codex: FREE / STANDARD (chatgpt) [ACTIVE]
+  ────────────────────────────────────────────────────────────────────────
+  Details for kaziaremon@gmail.com (Google Antigravity):
+    • Gemini:  5-Hour: [███████░]  82.1% (resets: 4h 34m) | Weekly: [████████] 100.0%
+    • Claude:  5-Hour: [████████] 100.0% (resets: 4h 59m) | Weekly: [█████░░░]  64.1% (resets: 1h 55m)
+  ────────────────────────────────────────────────────────────────────────
 ```
 
 ---

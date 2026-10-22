@@ -648,47 +648,44 @@ async function pickInteractive() {
     const pdir = path.join(PROFILES_DIR, p);
     const pType = getProfileType(p);
     const q = await getProfileQuota(pdir, false);
-    let tag = '';
-
-    if (q) {
-      if (q.gemini || q.claude) {
-        const parts = [];
-        if (q.gemini) {
-          const g5 = q.gemini['5h'];
-          const gw = q.gemini.weekly;
-          if (gw?.unmetered) {
-            parts.push('Gem: Unmetered');
-          } else {
-            const isWk = gw?.resets_in && (!g5?.resets_in || gw.resets_in.includes('d'));
-            const gemPct = isWk ? colorPct(gw.pct) : colorPct(g5?.pct ?? gw.pct);
-            const gemRes = isWk ? `wk:${gw.resets_in}` : (g5?.resets_in ? `5h:${g5.resets_in}` : '');
-            parts.push(`Gem: ${gemPct}${gemRes ? ` (${gemRes})` : ''}`);
-          }
-        }
-        if (q.claude) {
-          const c5 = q.claude['5h'];
-          const cw = q.claude.weekly;
-          const cldWk = colorPct(cw?.pct);
-          const cld5h = colorPct(c5?.pct);
-          const cldRes = cw?.resets_in && cw.pct < 100 ? ` (${cw.resets_in})` : (c5?.resets_in && c5.pct < 100 ? ` (${c5.resets_in})` : '');
-          parts.push(`Cld 5h:${cld5h} Wk:${cldWk}${cldRes}`);
-        }
-        tag = `[${parts.join(' | ')}]`;
-      } else if (q.codex?.plan_type) {
-        tag = `[Plan: ${q.codex.plan_type.toUpperCase()} | Mode: ${q.codex.auth_mode}]`;
-      }
-    }
-
-    let badge = '';
-    if (pType === 'dual') badge = `(Dual)`;
-    else if (pType === 'codex') badge = `(Codex)`;
-    else badge = `(Antigravity)`;
-
-    items.push({ name: p, tag, badge, pType });
+    items.push({ name: p, pType, q });
   }
 
   if (!process.stdin.isTTY) {
     return items[0].name;
+  }
+
+  const maxNameLen = Math.max(...items.map(it => it.name.length), 22);
+
+  function formatRowQuota(item) {
+    const q = item.q;
+    if (item.pType === 'codex') {
+      const plan = (q?.codex?.plan_type || 'FREE').toUpperCase();
+      return `${BLUE}Codex:${NC} ${GREEN}${BOLD}${plan}${NC} ${DIM}(${q?.codex?.auth_mode || 'chatgpt'})${NC}`;
+    }
+    if (!q) return `${DIM}Quota unavailable${NC}`;
+
+    const parts = [];
+    if (q.gemini) {
+      const gw = q.gemini.weekly || {};
+      const g5 = q.gemini['5h'] || {};
+      if (gw.unmetered) {
+        parts.push(`${CYAN}Gem:${NC} ${GREEN}100%${NC}`);
+      } else {
+        const isWk = gw.resets_in && (!g5.resets_in || gw.resets_in.includes('d'));
+        const pct = isWk ? gw.pct : (g5.pct ?? gw.pct ?? 100);
+        const res = isWk ? (gw.resets_in ? ` ${DIM}(${gw.resets_in})${NC}` : '') : (g5.resets_in && g5.pct < 100 ? ` ${DIM}(${g5.resets_in})${NC}` : '');
+        parts.push(`${CYAN}Gem:${NC} ${colorPct(pct)}${res}`);
+      }
+    }
+    if (q.claude) {
+      const cw = q.claude.weekly || {};
+      const c5 = q.claude['5h'] || {};
+      const minCld = Math.min(cw.pct ?? 100, c5.pct ?? 100);
+      const res = (cw.pct < 100 && cw.resets_in) ? ` ${DIM}(${cw.resets_in})${NC}` : (c5.pct < 100 && c5.resets_in ? ` ${DIM}(${c5.resets_in})${NC}` : '');
+      parts.push(`${MAGENTA}Cld:${NC} ${colorPct(minCld)}${res}`);
+    }
+    return parts.join('   ');
   }
 
   let selected = 0;
@@ -705,21 +702,73 @@ async function pickInteractive() {
     process.stdin.setEncoding('utf8');
     process.stderr.write('\x1b[?25l'); // Hide cursor
 
+    let lastRenderedLines = 0;
+
     function render() {
+      if (lastRenderedLines > 0) {
+        process.stderr.write(`\x1b[${lastRenderedLines}A`);
+      }
+
       let out = '\r\x1b[K\x1b[1;36mSelect Vault Account (↑/↓ arrow keys, Enter to switch, 1-9 direct, q to cancel):\x1b[0m\n\r';
+
       for (let i = 0; i < items.length; i++) {
         const item = items[i];
-        const isActive = (item.name === activeAgEmail || item.name === activeCodexEmail) ? ` ${GREEN}[ACTIVE]${NC}` : '';
-        const tagStr = item.tag ? `  ${item.tag}` : '';
-        const badgeStr = ` ${DIM}${item.badge}${NC}`;
+        const isActive = (item.name === activeAgEmail || item.name === activeCodexEmail) ? ` ${GREEN}${BOLD}[ACTIVE]${NC}` : '';
+        const paddedName = item.name.padEnd(maxNameLen + 1);
+        const quotaSummary = formatRowQuota(item);
+
         if (i === selected) {
-          out += `\r\x1b[K  ${GREEN}${BOLD}▶ [${i + 1}] ${item.name}${NC}${badgeStr}${tagStr}${isActive}\n\r`;
+          out += `\r\x1b[K  ${GREEN}${BOLD}▶ [${i + 1}] ${paddedName}${NC} ${quotaSummary}${isActive}\n\r`;
         } else {
-          out += `\r\x1b[K    [${i + 1}] ${item.name}${badgeStr}${tagStr}${isActive}\n\r`;
+          out += `\r\x1b[K    ${DIM}[${i + 1}]${NC} ${paddedName} ${quotaSummary}${isActive}\n\r`;
         }
       }
+
+      // Details Card for currently selected item
+      const selItem = items[selected];
+      const sq = selItem.q;
+      const sep = `${DIM}${'─'.repeat(74)}${NC}`;
+      out += `\r\x1b[K  ${sep}\n\r`;
+
+      let badge = '';
+      if (selItem.pType === 'dual') badge = `${MAGENTA}Dual: Antigravity + Codex${NC}`;
+      else if (selItem.pType === 'codex') badge = `${CYAN}OpenAI Codex${NC}`;
+      else badge = `${BLUE}Google Antigravity${NC}`;
+
+      out += `\r\x1b[K  ${BOLD}${CYAN}Details for ${selItem.name}${NC} ${DIM}(${badge}${DIM}):${NC}\n\r`;
+
+      if (selItem.pType === 'codex' || sq?.codex) {
+        const cdx = sq?.codex || {};
+        out += `\r\x1b[K    ${CYAN}• Codex Session:${NC} Plan: ${BOLD}${GREEN}${(cdx.plan_type || 'FREE').toUpperCase()}${NC} | Auth Mode: ${cdx.auth_mode || 'chatgpt'}${cdx.organization ? ` | Org: ${cdx.organization}` : ''}\n\r`;
+        if (cdx.token_expiry) {
+          out += `\r\x1b[K      Token Expiry:  ${cdx.token_expiry}\n\r`;
+        }
+      }
+
+      if (sq?.gemini || sq?.claude) {
+        if (sq.gemini) {
+          const gw = sq.gemini.weekly || {};
+          const g5 = sq.gemini['5h'] || {};
+          if (gw.unmetered) {
+            out += `\r\x1b[K    ${BLUE}• Gemini:${NC}  ${renderProgressBar(100, 8)} ${GREEN}Unlimited Capacity${NC} (Unmetered Standard Tier)\n\r`;
+          } else {
+            const g5Res = g5.resets_in ? ` ${DIM}(resets: ${g5.resets_in})${NC}` : '';
+            const gwRes = gw.resets_in ? ` ${DIM}(resets: ${gw.resets_in})${NC}` : '';
+            out += `\r\x1b[K    ${BLUE}• Gemini:${NC}  5-Hour: ${renderProgressBar(g5.pct, 8)} ${colorPct(g5.pct)}${g5Res} | Weekly: ${renderProgressBar(gw.pct, 8)} ${colorPct(gw.pct)}${gwRes}\n\r`;
+          }
+        }
+        if (sq.claude) {
+          const cw = sq.claude.weekly || {};
+          const c5 = sq.claude['5h'] || {};
+          const c5Res = c5.resets_in ? ` ${DIM}(resets: ${c5.resets_in})${NC}` : '';
+          const cwRes = cw.resets_in ? ` ${DIM}(resets: ${cw.resets_in})${NC}` : '';
+          out += `\r\x1b[K    ${MAGENTA}• Claude:${NC}  5-Hour: ${renderProgressBar(c5.pct, 8)} ${colorPct(c5.pct)}${c5Res} | Weekly: ${renderProgressBar(cw.pct, 8)} ${colorPct(cw.pct)}${cwRes}\n\r`;
+        }
+      }
+      out += `\r\x1b[K  ${sep}\n\r`;
+
+      lastRenderedLines = (out.match(/\n/g) || []).length;
       process.stderr.write(out);
-      process.stderr.write(`\x1b[${items.length + 1}A`);
     }
 
     render();
@@ -728,7 +777,14 @@ async function pickInteractive() {
       process.stdin.removeListener('data', onData);
       process.stdin.setRawMode(false);
       process.stdin.pause();
-      process.stderr.write(`\x1b[${items.length + 1}B\r\x1b[K\x1b[?25h`); // Restore cursor
+      if (lastRenderedLines > 0) {
+        process.stderr.write(`\x1b[${lastRenderedLines}A`);
+        for (let i = 0; i < lastRenderedLines; i++) {
+          process.stderr.write('\r\x1b[K\n');
+        }
+        process.stderr.write(`\x1b[${lastRenderedLines}A\r\x1b[K`);
+      }
+      process.stderr.write('\x1b[?25h'); // Restore cursor
     }
 
     function onData(key) {
