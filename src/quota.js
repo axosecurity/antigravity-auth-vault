@@ -276,6 +276,20 @@ async function getProfileQuota(profileDir, force = false) {
     }
   }
 
+  // Extract account-level weekly cycle reset anchor from summary if present
+  let weeklyCycleReset = '';
+  if (summary && Array.isArray(summary.groups)) {
+    for (const g of summary.groups) {
+      if (Array.isArray(g.buckets)) {
+        const wb = g.buckets.find(b => (b.bucketId || b.window || '').toLowerCase().includes('weekly'));
+        if (wb && (wb.resetTime || wb.resetsAt)) {
+          weeklyCycleReset = formatResetCountdown(wb.resetTime || wb.resetsAt);
+          break;
+        }
+      }
+    }
+  }
+
   // Parse live model quota from userQuota (detailed per-model buckets)
   if (userQuota && Array.isArray(userQuota.buckets)) {
     // Check for Gemini buckets
@@ -285,22 +299,23 @@ async function getProfileQuota(profileDir, force = false) {
       const pct = Math.round(fraction * 1000) / 10;
       const resetsIn = formatResetCountdown(gemBucket.resetTime || '');
 
-      let isWeekly = false;
+      let isWeeklyExhausted = false;
       if (gemBucket.resetTime) {
         const diffMs = new Date(gemBucket.resetTime).getTime() - Date.now();
         if (diffMs > 5.5 * 3600 * 1000) {
-          isWeekly = true;
+          isWeeklyExhausted = true;
         }
       }
 
-      if (isWeekly) {
-        // Active rate-limit constraint is the Weekly quota cap
+      if (isWeeklyExhausted) {
+        // Account has exhausted short-term tokens and is governed by weekly recovery
         result.gemini.weekly = { pct, resets_in: resetsIn, unmetered: false };
-        result.gemini['5h'] = { pct, resets_in: '', unmetered: false };
-      } else {
-        // Active rate-limit constraint is the 5-Hour rolling window
         result.gemini['5h'] = { pct, resets_in: resetsIn, unmetered: false };
-        result.gemini.weekly = { pct: 100, resets_in: '', unmetered: false };
+      } else {
+        // 5-Hour rolling window is actively refilling short-term tokens
+        result.gemini['5h'] = { pct, resets_in: resetsIn, unmetered: false };
+        // Weekly limit reflects the true WTUS token percentage and account weekly cycle reset
+        result.gemini.weekly = { pct, resets_in: weeklyCycleReset || resetsIn, unmetered: false };
       }
     }
 
@@ -310,7 +325,7 @@ async function getProfileQuota(profileDir, force = false) {
       const fraction = cldBucket.remainingFraction !== undefined ? cldBucket.remainingFraction : 1;
       const pct = Math.round(fraction * 1000) / 10;
       const resetsIn = formatResetCountdown(cldBucket.resetTime || '');
-      result.claude.weekly = { pct, resets_in: resetsIn };
+      result.claude.weekly = { pct, resets_in: weeklyCycleReset || resetsIn };
       result.claude['5h'] = { pct, resets_in: resetsIn };
     }
   }

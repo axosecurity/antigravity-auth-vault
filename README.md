@@ -54,7 +54,7 @@ Select Vault Account (↑/↓ arrow keys, Enter to switch, 1-9 direct, q to canc
     [6] tamin546495765@gmail.com      Codex: FREE / STANDARD (chatgpt) [ACTIVE]
   ────────────────────────────────────────────────────────────────────────
   Details for kaziaremon@gmail.com (Google Antigravity):
-    • Gemini:  5-Hour: [███████░]  82.1% (resets: 4h 34m) | Weekly: [████████] 100.0%
+    • Gemini:  5-Hour: [███████░]  82.1% (resets: 4h 34m) | Weekly: [███████░]  82.1% (resets: 6d 20h)
     • Claude:  5-Hour: [████████] 100.0% (resets: 4h 59m) | Weekly: [█████░░░]  64.1% (resets: 1h 55m)
   ────────────────────────────────────────────────────────────────────────
 ```

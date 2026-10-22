@@ -672,9 +672,12 @@ async function pickInteractive() {
       if (gw.unmetered) {
         parts.push(`${CYAN}Gem:${NC} ${GREEN}100%${NC}`);
       } else {
-        const isWk = gw.resets_in && (!g5.resets_in || gw.resets_in.includes('d'));
-        const pct = isWk ? gw.pct : (g5.pct ?? gw.pct ?? 100);
-        const res = isWk ? (gw.resets_in ? ` ${DIM}(${gw.resets_in})${NC}` : '') : (g5.resets_in && g5.pct < 100 ? ` ${DIM}(${g5.resets_in})${NC}` : '');
+        const pct = gw.pct !== undefined ? gw.pct : (g5.pct !== undefined ? g5.pct : 100);
+        let res = '';
+        if (pct < 100) {
+          const timer = g5.resets_in || gw.resets_in || '';
+          if (timer) res = ` ${DIM}(${timer})${NC}`;
+        }
         parts.push(`${CYAN}Gem:${NC} ${colorPct(pct)}${res}`);
       }
     }
@@ -682,7 +685,11 @@ async function pickInteractive() {
       const cw = q.claude.weekly || {};
       const c5 = q.claude['5h'] || {};
       const minCld = Math.min(cw.pct ?? 100, c5.pct ?? 100);
-      const res = (cw.pct < 100 && cw.resets_in) ? ` ${DIM}(${cw.resets_in})${NC}` : (c5.pct < 100 && c5.resets_in ? ` ${DIM}(${c5.resets_in})${NC}` : '');
+      let res = '';
+      if (minCld < 100) {
+        const timer = c5.resets_in || cw.resets_in || '';
+        if (timer) res = ` ${DIM}(${timer})${NC}`;
+      }
       parts.push(`${MAGENTA}Cld:${NC} ${colorPct(minCld)}${res}`);
     }
     return parts.join('   ');

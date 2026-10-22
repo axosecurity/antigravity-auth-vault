@@ -11,7 +11,7 @@
   "scripts": {
     "install-local": "./install.sh",
     "uninstall-local": "./uninstall.sh",
-    "test": "node bin/ag-auth.js version && bash -n bin/ag-auth && bash -n bin/codex-auth"
+    "test": "node bin/ag-auth.js version && node test/quota.test.js && bash -n bin/ag-auth && bash -n bin/codex-auth"
   },
   "repository": {
     "type": "git",
